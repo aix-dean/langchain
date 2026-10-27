@@ -708,3 +708,25 @@ context; full results remain available in saved messages and PDF reports. This i
 lossless compaction of relevant context, not semantic summarization of old chats.
 The existing chat memory limit and history window still apply. Savings vary by
 input; model loading, vision generation and the evidence audit still take time.
+
+
+## Swagger API documentation
+
+Open **http://127.0.0.1:8000/docs** for interactive Swagger UI. The raw schema is
+**http://127.0.0.1:8000/openapi.json**. These are backend URLs; port 3000 serves
+the separate Next.js frontend. Swagger UI JavaScript, CSS and favicon are bundled
+locally, so the docs require no CDN or external validator.
+
+The five API operations are grouped by feature, with form-field descriptions,
+request examples, typed readiness output, HTTP validation errors, NDJSON stream
+examples, terminal-event conventions, and PDF response/download headers.
+Use **Try it out** to send requests. This executes real operations: document
+uploads store passages and confirmed replacements replace existing documents.
+Swagger may display a stream only after it finishes; use a streaming client for
+live progress. Processing errors can arrive as terminal `error` events after an
+HTTP 200 response, so clients must inspect the stream as well as the HTTP status.
+
+Swagger metadata lives in `app/api/documentation.py`, feature routes own their
+operation descriptions, and status output is defined in
+`app/features/status/schemas.py`. The upstream UI version and license are recorded
+in `static/vendor/swagger-ui/README.md`.

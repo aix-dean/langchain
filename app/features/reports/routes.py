@@ -5,11 +5,16 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from app.features.reports.service import build_report
+from app.api.documentation import REPORT_RESPONSES, REPORT_DATA_EXAMPLE
 
 router = APIRouter(tags=["reports"])
 
-@router.post("/api/report")
-def report(image: UploadFile = File(...), data: str = Form(...)):  # The image again (the server never stores it) and the result as JSON text
+@router.post(
+    "/api/report", summary="Download an image-review PDF report", operation_id="download_report",
+    description="Supply the original image and the completed check result with an optional human decision and notes. This generates a report without rerunning the AI check. The data form field is a JSON-encoded object with result, decision (Approve/Revise/Reject), notes and file_name.",
+    response_class=Response, responses=REPORT_RESPONSES,
+)
+def report(image: UploadFile = File(..., description="The same image used for the review."), data: str = Form(..., description="JSON-encoded report input. result is the complete check result object, not just its verdict string.", examples=[REPORT_DATA_EXAMPLE])):  # The image again (the server never stores it) and the result as JSON text
     try:  # The data must be valid JSON
         info = json.loads(data)  # {"result": {...}, "decision": "...", "notes": "...", "file_name": "..."}
     except json.JSONDecodeError:  # Broken data
