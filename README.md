@@ -324,13 +324,13 @@ web server first if both would run at the same time; they share the graphics car
 
 `server.py` receives each message at `/api/chat`:
 
-- **No image:** `chat.py` sends the chat instructions (`prompts/chat.md`) plus the **ASC rule
+- **No image:** `app/features/chat/service.py` sends the chat instructions (`prompts/chat.md`) plus the **ASC rule
   checklist** (taken from `prompts/judge.md`, so both always use the same rules), the recent
   conversation and the question to the judge model. It may search the guidebook up to 3 times, then
   answers. Older messages are dropped when the conversation gets long, so the rules always fit in the
-  AI's memory. Finally, `chat.py` flags measurements in the answer that don't appear in the checklist
+  AI's memory. Finally, `app/features/chat/service.py` flags measurements in the answer that don't appear in the checklist
   or the passages it read.
-- **Image attached:** the three-step check below (`pipeline.py`). The text of the message, if any,
+- **Image attached:** the three-step check below (`app/features/ad_review/service.py`). The text of the message, if any,
   is passed to the judge as a clearly marked reviewer note.
 
 After a check, the page adds a short summary of the result (verdict, problems, fixes and the image
@@ -338,25 +338,25 @@ description) to the conversation, so follow-up questions can use it.
 
 ### The image check, step by step
 
-**Step 1: describe** (`vision.py`)
+**Step 1: describe** (`app/infrastructure/ollama/vision.py`)
 - Sends the image to **minicpm-v:8b** through Ollama, with two prompts:
   - `prompts/describe_system.md`: "describe only, in English, don't judge", taken from the n8n node.
   - `prompts/describe.md`: the 7 sections to fill in (ALL TEXT, PRODUCT, CLAIMS, WARNINGS AND FINE
     PRINT, PEOPLE, OTHER VISUALS, UNREADABLE). It insists on copying only text that is really in the image.
 - The description is streamed to the page as it's written.
 
-**Step 2: check the rules** (`judge.py`)
+**Step 2: check the rules** (`app/features/ad_review/judgment.py`)
 - Sends `prompts/judge.md` (the n8n AI Agent prompt, about 8,000 tokens) with the description
   filled in, to **gpt-oss:20b**.
 - The prompt holds the full **ASC rule checklist** (G general, C claims, P price/promo, R category
   rules, plus the decency checklist D1–D6). It tells the AI to call the **`asc_guidelines`** tool 2 to
   5 times to confirm rule wording.
-- Each search returns the **3 closest passages** from Qdrant (`guidelines.py`). Repeated searches are
+- Each search returns the **3 closest passages** from Qdrant (`app/features/guidelines/service.py`). Repeated searches are
   refused, and passages already shown aren't sent again, to keep the AI's memory from overflowing.
 - The AI answers with **JSON**: the verdict, and either the violations (rule, evidence, problem, fix,
   rule explanation) or the checks that passed.
 
-**Step 3: verify** (`checks.py`, the Python version of the n8n "Code in JavaScript" node)
+**Step 3: verify** (`app/features/ad_review/checks.py`, the Python version of the n8n "Code in JavaScript" node)
 1. **Finds the product category** in the description from keywords (beer → `R-ALC`, supplement → `R-SUPP`, …).
 2. **Removes made-up violations:**
    - a category rule for a product type the ad doesn't show (e.g. milk rules on a beer ad)
@@ -378,11 +378,11 @@ description) to the conversation, so follow-up questions can use it.
 |---|---|
 | Upload Image (form) | `static/index.html` + `server.py` (`/api/check`) |
 | Extract from File | Not needed: the browser shows the image itself |
-| Analyze image (minicpm-v:8b) | `vision.py` |
-| AI Agent + Ollama Chat Model (gpt-oss:20b, think) | `judge.py` |
-| asc_guidelines (Qdrant, retrieve-as-tool, top 3) + Embeddings Ollama1 | `guidelines.py` |
-| Code in JavaScript | `checks.py` + `prompts/rules.json` |
-| Form (completion page) | The result panel in `static/index.html`, plus a downloadable PDF report (`report.py`) |
+| Analyze image (minicpm-v:8b) | `app/infrastructure/ollama/vision.py` |
+| AI Agent + Ollama Chat Model (gpt-oss:20b, think) | `app/features/ad_review/judgment.py` |
+| asc_guidelines (Qdrant, retrieve-as-tool, top 3) + Embeddings Ollama1 | `app/features/guidelines/service.py` |
+| Code in JavaScript | `app/features/ad_review/checks.py` + `prompts/rules.json` |
+| Form (completion page) | The result panel in `static/index.html`, plus a downloadable PDF report (`app/features/reports/service.py`) |
 | On form submission (PDF) → Default Data Loader → Text Splitter → Qdrant Vector Store | `ingest_guidelines.py` |
 
 Both versions use **the same Qdrant collection**, so n8n and this app can run side by side.
@@ -391,47 +391,66 @@ Both versions use **the same Qdrant collection**, so n8n and this app can run si
 
 ## 7. The files in this project
 
-```
-Langchain/
-├── server.py              ← the web server: serves the page, runs checks and chat answers, reports status
-├── chat.py                ← chat answers (messages without an image)
-├── check.py               ← check one image from the terminal
-├── pipeline.py            ← runs the three steps in order and reports progress
-├── vision.py              ← step 1: describe the image (minicpm-v)
-├── judge.py               ← step 2: check the rules (gpt-oss); also the "think, search, answer" loop used by chat
-├── guidelines.py          ← search the asc_guidelines collection in Qdrant
-├── checks.py              ← step 3: verify the AI's answer (port of the n8n code node)
-├── report.py              ← makes the PDF report
-├── ingest_guidelines.py   ← add a guideline PDF to Qdrant
-├── config.py              ← all settings, read from .env
-├── prompts/
-│   ├── describe_system.md ← vision model: who it is (describe only, English only)
-│   ├── describe.md        ← vision model: the 7 sections to write
-│   ├── judge.md           ← judge model: the full ASC checklist and output format
-│   ├── chat.md            ← chat instructions (the checklist from judge.md is added to it)
-│   └── rules.json         ← plain-language summary of every ASC rule ID
-├── static/
-│   └── index.html         ← the web page (HTML, CSS and JavaScript in one file)
-├── archive/document-chat/ ← the previous version of this project (document Q&A), kept for reference
-├── .env.example           ← example settings (copy to .env)
-├── pyproject.toml         ← required libraries
-└── uv.lock                ← exact library versions (managed by uv, don't edit)
+```text
+langchain/
+├── app/
+│   ├── main.py                   # App factory and feature-router composition
+│   ├── bootstrap.py              # Model warm-up during application startup
+│   ├── core/                     # Configuration, context compaction, process coordination
+│   ├── api/                      # Shared NDJSON transport and original HTML pages
+│   ├── features/
+│   │   ├── chat/                 # Routes, conversation handling, scope, tool search loop
+│   │   ├── ad_review/            # Routes, image-check orchestration, judgment, verification
+│   │   ├── documents/            # Routes, extraction and ingestion workflow
+│   │   ├── guidelines/           # ASC/MACEA retrieval policy and source formatting
+│   │   ├── reports/              # Routes and PDF generation
+│   │   └── status/               # Routes and service readiness
+│   ├── infrastructure/
+│   │   ├── ollama/               # Model clients, vision requests, CPU embedding service
+│   │   └── qdrant/               # Vector-store and embedding adapters
+│   └── cli/                      # Command-line workflows
+├── tests/                        # Regression, architecture and HTTP-contract tests
+├── server.py                     # Compatible server command
+├── check.py                      # Compatible image-check command
+├── ingest_guidelines.py          # Compatible document-ingestion command
+├── prompts/                      # Prompt text and ASC rule summaries
+├── static/                       # Original HTML interface
+├── documents/                    # Existing source documents
+├── archive/                      # Previous implementation, retained for reference
+├── .env.example
+├── pyproject.toml
+└── uv.lock
 ```
 
-Every Python file has a comment on each line explaining what it does. To learn the code, read in
-this order: `config.py` → `vision.py` → `guidelines.py` → `judge.py` → `checks.py` → `pipeline.py` → `server.py`.
+Start with `app/main.py`, then follow a feature's `routes.py` into its service.
+Routes own HTTP validation and response handling. Services own the workflows.
+Ollama and Qdrant adapters own external-service access. Shared transport owns the
+streaming protocol, and core owns configuration and process-wide coordination.
 
-### Who uses what
+All existing API paths and multipart/NDJSON/PDF contracts remain unchanged, so
+the separate Next.js frontend needs no URL changes. Importing the application
+starts no model warm-up; FastAPI's lifespan starts that work when the server runs.
+Configuration and resource paths resolve from the backend project root.
 
+Existing commands still work:
+
+```powershell
+uv run server.py
+uv run check.py "path/to/ad.png"
+uv run ingest_guidelines.py "path/to/guide.pdf"
 ```
-server.py ──▶ report.py (PDF report)
-server.py ──▶ chat.py ──▶ judge.py (search loop) ──▶ guidelines.py
-server.py ─┐
-check.py ──┴─▶ pipeline.py ─┬─▶ vision.py
-                            ├─▶ judge.py ──▶ guidelines.py ──▶ Qdrant (asc_guidelines)
-                            └─▶ checks.py ──▶ prompts/rules.json
-ingest_guidelines.py ──▶ guidelines.py ──▶ Qdrant
+
+The package can also run as `uv run -m app`, or with Uvicorn at `app.main:app`.
+Run the tests from the backend root:
+
+```powershell
+uv run -m unittest discover -s tests -p "test_*.py"
+node --test tests/test_chat_stream.cjs
 ```
+
+See [the architecture guide](docs/architecture.md) for dependency boundaries and
+how to add a feature. Internal Python imports now use the `app.*` package; old
+flat-module imports are not supported. The three root CLI entrypoints are retained.
 
 ---
 
@@ -468,7 +487,7 @@ The instructions are plain text files in `prompts/`. Edit them in any editor and
 |---|---|
 | `describe.md` | ask the vision model to describe something more or differently |
 | `chat.md` | change how the chat assistant answers (tone, length, accuracy rules). The ASC checklist is added to it automatically from `judge.md`. |
-| `judge.md` | change the ASC checklist, strictness or output format (the chat uses the same checklist). It **must** keep the `{description}` placeholder, and the JSON output format that `checks.py` reads (`verdict`, `reasons`, `checks_passed`, …). |
+| `judge.md` | change the ASC checklist, strictness or output format (the chat uses the same checklist). It **must** keep the `{description}` placeholder, and the JSON output format that `app/features/ad_review/checks.py` reads (`verdict`, `reasons`, `checks_passed`, …). |
 | `rules.json` | change the plain-language rule summaries shown in the results |
 
 > If you edit the prompts in n8n too, copy the changes here (or the other way round). The two
@@ -656,3 +675,36 @@ Image results distinguish `COMPLIANT`, `NON-COMPLIANT`, `NEEDS_REVIEW`, and `ERR
 A proposed approval or rejection receives a separate model evidence audit against the observations, rule summaries and retrieved passages. Audit disagreement, truncation, or failure changes the result to `NEEDS_REVIEW`, never to the opposite verdict. This adds processing time relative to the earlier fast path. The UI, CLI and PDF report recognize the review outcome.
 
 Result `analysis` metadata includes the image, description, source and instruction hashes plus effective seed and reasoning level, so repeated checks can be compared without retaining original uploads. These safeguards reduce unsupported decisions; they do not independently establish OCR ground truth, legal compliance or guaranteed accuracy. Validate model quality against labeled real ads before relying on the pre-screen's decisions. Explicit `.env` overrides take precedence over the updated defaults.
+
+
+## Current single-generation-model setup
+
+The local configuration uses `qwen3.5:9b` for both image descriptions and chat/judgment.
+Set `CHAT_REASONING=off`, `JUDGE_REASONING=off`, and `IMAGE_JUDGE_REASONING=off`
+to explicitly disable Qwen thinking in chat, scope classification, image judgment,
+and the independent evidence audit. Vision already requests `think=false` when supported.
+Both model stages use a 16384-token context to avoid changing the model context between stages.
+The evidence audit and deterministic verification remain enabled.
+
+Guideline search still requires `nomic-embed-text`, since the existing Qdrant vectors
+were created with it. The application uses a separate CPU Ollama on port 11435
+when available; its health check uses the supported Python client's `list()` method.
+Unloading a model releases its memory without deleting its downloaded files. Other
+applications sharing Ollama can reload models independently.
+
+
+## Context compaction
+
+Prompt instructions omit decorative separator banners and blank lines while keeping
+every instruction and the full rule checklist. MACEA-only chats include MACEA
+instructions once. Evidence-audit JSON is serialized compactly, byte-identical
+reference blocks are deduplicated, and an observation description repeated inside
+the proposed result is stored once. Distinct authorities and source locations are
+retained. Source passages, observations, quotations, findings, and negations are
+not summarized or rewritten. No extra model call is used for compaction.
+
+The Next.js client also omits operational review metadata from follow-up chat
+context; full results remain available in saved messages and PDF reports. This is
+lossless compaction of relevant context, not semantic summarization of old chats.
+The existing chat memory limit and history window still apply. Savings vary by
+input; model loading, vision generation and the evidence audit still take time.
