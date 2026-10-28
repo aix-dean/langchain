@@ -2,7 +2,7 @@
 
 This is the Python version of the n8n "Code in JavaScript" node. It removes "violations" the judge
 made up (rules from another product category, "missing" statements that are actually in the ad,
-evidence that isn't in the description), routes uncertainty to review, and attaches a
+evidence that isn't in the description), records uncertainty as notes, and attaches a
 plain-language explanation of every rule.
 """
 
@@ -147,6 +147,17 @@ def positive_decency_hits(description, pattern):
     return list(dict.fromkeys(hits))[:2]
 
 
+def approval_reason(checks):
+    """Explain approval using only checks retained by evidence verification."""
+    findings = [f"{check['check']}: {check['finding']} ({check['guideline']})."
+                for check in checks]
+    if findings:
+        return 'Approved because no verified violation remains and these checks were supported by the image evidence: ' + ' '.join(findings)
+    return ('Approved because no proposed rule violation could be verified from the available image evidence. '
+            'This is an approval under the no-verified-violation policy; no passing checks were established. '
+            'See Notes for the unresolved checks and evidence gaps.')
+
+
 def finalize(raw, description):  # Step 3: turns the judge's raw answer into the final, checked result
     try:  # The answer may not be valid JSON
         data = parse_answer(raw)  # The judge's JSON
@@ -183,7 +194,7 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
         review_issues.append('The image description is incomplete; all seven observation sections are required.')
     unreadable = sections.get('7', '').strip()
     if unreadable and normalized(unreadable) not in {'none', 'none found', 'no unreadable text', 'no unreadable text found'}:
-        review_issues.append('Some image text could not be read reliably. Confirm it from a clearer image before approval.')
+        review_issues.append('Some image text could not be read reliably. Confirm it from a clearer image.')
     if data.get('review_issues'):
         issues = data['review_issues']
         if isinstance(issues, list):
@@ -221,6 +232,29 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
             if normalized(statement) in normalized(sections.get('4', '')):
                 return 'statement appears in warning observations but was not transcribed consistently'
             return "ok"  # Really missing
+        # A description's section labels and unreadability are assessment limitations,
+        # not observations establishing a rule violation.
+        if normalized(evidence) in {'none', 'none found', 'unknown', 'unreadable'}:
+            return 'an empty observation section does not establish a violation'
+        statement = MANDATORY_STATEMENTS.get(rule_id(reason))
+        statement_concern = re.search(
+            r'mandatory|required|statement|warning|fine print|legib|readab|obscur|prominen|clarity|contradict',
+            problem, re.I)
+        if statement and statement_concern:
+            statement_present = normalized(statement) in normalized(sections.get('1', ''))
+            # A presence quote or an unreadable unrelated label cannot prove that
+            # the mandatory statement itself lacks prominence or readability.
+            prominence_evidence = (normalized(statement) in normalized(evidence)
+                and bool(re.search(r'\b(tiny|faint|hidden|illegible|unreadable|obscured|not prominent|not readable|not legible|too small)\b', evidence, re.I))
+                and not re.search(r'\b(no|not|without)\s+(?:\w+\s+){0,2}(?:tiny|faint|hidden|illegible|unreadable|obscured)\b', evidence, re.I))
+            if statement_present and not prominence_evidence:
+                return 'the mandatory statement is transcribed; no specific evidence establishes a prominence violation'
+            if not statement_present and not prominence_evidence:
+                return 'mandatory-statement absence requires an explicit verified missing-statement finding'
+        if re.search(r'\b(unreadable|illegible|obscured|difficult to read)\b', evidence, re.I):
+            if normalized(evidence) in normalized(sections.get('7', '')) or re.search(
+                    r'\b(text|information|details|print|label)\b', problem, re.I):
+                return 'unreadable text does not establish what the text says or a specific rule violation'
         if not words(evidence):  # No evidence at all
             return "no evidence"  # Can't be trusted
         return 'ok' if quoted_evidence(evidence, description) else 'evidence is not an exact image-observation quote'
@@ -237,7 +271,7 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
         if hits and not already:
             review_issues.append('Possible decency concern needs contextual review: ' + ' / '.join(hits))
     if removed:
-        review_issues.append('Some proposed findings could not be verified. Removing them does not establish compliance.')
+        review_issues.append('Some proposed findings could not be verified and were excluded from the decision: ' + '; '.join(removed))
     if verdict == 'NON-COMPLIANT' and not reasons:
         review_issues.append('The judge rejected the ad, but no supported violation remained after verification.')
     if verdict == 'NEEDS_REVIEW':
@@ -256,9 +290,18 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
         candidate_checks = data.get('checks_passed')
         if not isinstance(candidate_checks, list):
             candidate_checks = []
-        for item in candidate_checks:
+        for index, item in enumerate(candidate_checks, 1):
             if not isinstance(item, dict):
+                review_issues.append(f'Check {index} could not be verified because its details are missing. Request a complete check with an ASC rule and an exact quote from the image observations.')
                 continue
+            label = str(item.get('check') or f'Check {index}')
+            missing = [field for field in ('check', 'guideline', 'finding', 'evidence') if not str(item.get(field) or '').strip()]
+            if missing:
+                review_issues.append(f'{label}: missing {", ".join(missing)}. Complete these details for a fully verified assessment.')
+            elif not quoted_evidence(item['evidence'], description):
+                review_issues.append(f'{label}: the quoted evidence could not be matched to the image observations. Confirm the finding using an exact observation quote.')
+            elif rule_id({'rule': item['guideline']}) not in RULE_INFO:
+                review_issues.append(f'{label}: the ASC rule reference could not be verified. Identify the applicable checklist rule.')
             if (all(str(item.get(field) or '').strip() for field in ('check', 'guideline', 'finding', 'evidence'))
                     and quoted_evidence(item['evidence'], description)
                     and rule_id({'rule': item['guideline']}) in RULE_INFO):
@@ -270,16 +313,25 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
             claims = claim_quotes or [line.strip() for line in claim_text.splitlines() if line.strip()]
             if any(not any(normalized(claim) in normalized(item['evidence']) for item in checks_passed) for claim in claims):
                 review_issues.append('One or more observed claims lack an evidence-backed passing check.')
-        if (len({normalized(item['check']) for item in checks_passed}) < 4
-                or len(checks_passed) != len(candidate_checks)
-                or 'G-04' not in ids
-                or not any(code.startswith('G-') and code != 'G-04' for code in ids)
-                or (selected_category in detected and selected_category not in ids)):
-            review_issues.append('Approval lacks complete evidence-backed category, general-standard, and decency checks.')
+        distinct_checks = len({normalized(item['check']) for item in checks_passed})
+        if distinct_checks < 4:
+            review_issues.append(f'Only {distinct_checks} of the required 4 distinct checks have verifiable evidence. Complete the remaining checks for a fully verified assessment.')
+        if 'G-04' not in ids:
+            review_issues.append('Decency (G-04) was not verified with image evidence. Confirm the people, clothing, poses and imagery against the decency rule.')
+        if not any(code.startswith('G-') and code != 'G-04' for code in ids):
+            review_issues.append('General advertising standards were not verified with image evidence. Complete an applicable general-standard check with its rule and observation quote.')
+        if selected_category in detected and selected_category not in ids:
+            review_issues.append(f'The product-category requirements ({selected_category}) were not verified with image evidence. Check the applicable category requirements.')
         approval_summary = str(data.get('approval_summary') or '').strip()
         if not approval_summary:
             review_issues.append('The judge did not provide a supported approval summary.')
-    result = 'NON-COMPLIANT' if reasons else ('NEEDS_REVIEW' if review_issues else 'COMPLIANT')
+    result = 'NON-COMPLIANT' if reasons else 'COMPLIANT'
+    if result == 'COMPLIANT' and (review_issues or not approval_summary):
+        approval_summary = approval_reason(checks_passed)
+    explanation = (approval_summary if result == 'COMPLIANT' else
+                   'Not approved: ' + ' '.join(str(reason['problem']) for reason in reasons))
+    if review_issues:
+        explanation += ' Notes: ' + ' '.join(dict.fromkeys(review_issues))
     if result != 'COMPLIANT':
         approval_summary = ''
         checks_passed = []
@@ -289,7 +341,9 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
 
     return {  # The final result
         "result": result,
-        "message": " ".join(dict.fromkeys(review_issues)) if result == "NEEDS_REVIEW" else "",
+        "explanation": explanation,
+        "message": " ".join(dict.fromkeys(review_issues)),
+        "notes": list(dict.fromkeys(review_issues)),
         "review_issues": list(dict.fromkeys(review_issues)),
         "reasons": reasons,  # The violations that hold up
         "approval_summary": approval_summary,  # Why it passed (compliant only)
@@ -300,3 +354,17 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
         "description_from": description_from,  # Which description was used
         "category_rule": data.get("category_rule"),  # The judge's own category choice
     }  # End of result
+
+
+def presentation_result(result):
+    """Normalize saved review outcomes without changing the stored result."""
+    result = dict(result)
+    notes = result.get('notes') or result.get('review_issues') or []
+    if result.get('result') == 'NEEDS_REVIEW':
+        notes = notes or [result.get('message') or result.get('explanation') or
+                          'The previous assessment was incomplete or uncertain.']
+        result['result'] = 'COMPLIANT'
+        result['approval_summary'] = approval_reason(result.get('checks_passed') or [])
+        result['explanation'] = result['approval_summary'] + ' Notes: ' + ' '.join(notes)
+    result['notes'] = list(dict.fromkeys(notes))
+    return result

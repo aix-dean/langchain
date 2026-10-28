@@ -658,11 +658,28 @@ function checkUI(file, note) {
 }
 
 // The result card of a check
+function approvalReason(r) {
+  const checks = r.checks_passed || [];
+  return checks.length
+    ? "Approved because no verified violation remains and these checks were supported by the image evidence: " + checks.map((c) => `${c.check}: ${c.finding} (${c.guideline}).`).join(" ")
+    : "Approved because no proposed rule violation could be verified from the available image evidence. This is an approval under the no-verified-violation policy; no passing checks were established. See Notes for the unresolved checks and evidence gaps.";
+}
+
+function presentationResult(r) {
+  const notes = (r.notes?.length ? r.notes : r.review_issues || []).filter((note) => String(note).trim());
+  if (r.result === "NEEDS_REVIEW") {
+    if (!notes.length) notes.push(r.message || r.explanation || "The previous assessment was incomplete or uncertain.");
+    return {...r, result: "COMPLIANT", notes, approval_summary: approvalReason(r)};
+  }
+  return {...r, notes, approval_summary: r.result === "COMPLIANT" ? (r.approval_summary || approvalReason(r)) : r.approval_summary};
+}
+
 function renderResult(r, id) {
+  r = presentationResult(r);
   const reasons = r.reasons || [];
   let html = "";
   if (r.result === "NON-COMPLIANT") {
-    html += `<div class="verdict bad"><div class="v">✕ Non-compliant</div><p>${reasons.length} issue${reasons.length === 1 ? "" : "s"} must be fixed before this ad can run.</p></div>`;
+    html += `<div class="verdict bad"><div class="v">✕ Reject</div><p>${reasons.length} issue${reasons.length === 1 ? "" : "s"} must be fixed before this ad can run.</p></div>`;
     html += reasons.map((x, i) => {
       const info = x.info || {};
       return `<div class="issue"><span class="n">${i + 1}</span><div class="ib">
@@ -673,14 +690,13 @@ function renderResult(r, id) {
         <div class="ref">ASC reference: ${esc(x.rule)}</div></div></div>`;
     }).join("");
   } else if (r.result === "COMPLIANT") {
-    html += `<div class="verdict good"><div class="v">✓ Compliant</div><p>${esc(r.approval_summary || "No ASC violations were found.")}</p></div>`;
+    html += `<div class="verdict good"><div class="v">✓ Approve</div><p><b>Why approved:</b> ${esc(r.approval_summary)}</p></div>`;
     if ((r.checks_passed || []).length) html += `<div class="passed">` + r.checks_passed.map((c) =>
       `<div><span class="tick">✓</span><div><b>${esc(c.check)}</b><div>${esc(c.finding)}</div>${c.guideline ? `<small>ASC guideline: ${esc(c.guideline)}</small>` : ""}</div></div>`).join("") + `</div>`;
-  } else if (r.result === "NEEDS_REVIEW") {
-    html += `<div class="verdict warn"><div class="v">Needs review</div><p>${esc(r.message || "The available evidence does not support approval or rejection.")}</p></div>`;
   } else {
     html += `<div class="verdict warn"><div class="v">! Could not check</div><p>${esc(String(r.message || "Please send the image again.").split("\n")[0])}</p></div>`;
   }
+  if (r.notes.length) html += `<div class="panel"><h3>Notes</h3><ul>${r.notes.map((note) => `<li>${esc(note)}</li>`).join("")}</ul></div>`;
   if (Number.isFinite(r.seconds)) html += `<p class="muted">Completed in ${esc(fmtTime(r.seconds))}.</p>`;
   if ((r.removed_reasons || []).length) html += `<details class="panel"><summary>Removed by verification <span class="count">${r.removed_reasons.length}</span></summary><div class="panel-body">
     <p style="margin:0 0 6px;font-size:13px">The AI raised these, but they weren't backed by the image, so they were removed:</p>
@@ -694,10 +710,12 @@ function renderResult(r, id) {
 
 // What the AI remembers about a check, for follow-up questions
 function summarize(r, name) {
-  let s = `ASC CHECK RESULT for ${name}: ${r.result}.`;
+  r = presentationResult(r);
+  let s = `ASC CHECK RESULT for ${name}: ${{COMPLIANT: "Approve", "NON-COMPLIANT": "Reject"}[r.result] || r.result}.`;
   if (r.result === "NON-COMPLIANT") s += "\n" + (r.reasons || []).map((x, i) => `${i + 1}. ${x.problem} Rule: ${x.rule}. Evidence: ${x.evidence}. Fix: ${x.suggestion}`).join("\n");
   else if (r.result === "COMPLIANT") s += " " + (r.approval_summary || "") + "\n" + (r.checks_passed || []).map((c) => `- ${c.check}: ${c.finding}`).join("\n");
-  else s += " " + String(r.message || "").split("\n")[0];
+  else s += " " + String(r.explanation || r.message || "");
+  if (r.notes.length) s += "\nNotes:\n" + r.notes.map((note) => `- ${note}`).join("\n");
   if (r.description) s += "\n\nWhat the AI saw in the image:\n" + r.description.slice(0, 1500);
   return s;
 }

@@ -269,3 +269,9 @@ ACCURACY AND VERIFICATION CONTRACT
 - For NON-COMPLIANT provide at least one supported reason with a verified ASC checklist rule ID, a precise quoted observation, problem, and suggestion. Uncertain interpretations belong in review_issues, not fabricated reasons.
 - Treat negated observations accurately: "no swimwear", "not revealing", and "no kissing" do not establish those conditions. Do not infer absence from unreadable text.
 - Items requiring supporting documents or physical measurements cannot be verified from an image alone. Identify missing proof in review_issues instead of approving, rejecting, or inventing measurements.
+
+
+OBSERVATION CONSISTENCY
+- Read mandatory statements across ALL TEXT and WARNINGS AND FINE PRINT together. If ALL TEXT transcribes the required statement, NONE FOUND in the warnings section is an observation inconsistency, never proof of an ad violation.
+- Unreadable bottle-neck or packaging text is an evidence gap. Do not assume it contains mandatory information or a prohibited claim. Put it in review_issues, not reasons.
+- A prominence violation requires a specific observation that the required statement itself is tiny, faint, hidden, or otherwise not prominent. A quote describing the statement as large does not support rejection.

@@ -7,6 +7,8 @@ from pathlib import Path  # Standard library module for working with file paths
 from fpdf import FPDF  # Library that creates PDF files
 from PIL import Image  # Library that reads and resizes images
 
+from app.features.ad_review.checks import presentation_result
+
 FONT_DIR = Path("C:/Windows/Fonts")  # Where Windows keeps its fonts
 FONTS = {"": "arial.ttf", "B": "arialbd.ttf", "I": "ariali.ttf"}  # Regular, bold and italic Arial
 COLORS = {  # (background, text) colors for each verdict
@@ -15,7 +17,7 @@ COLORS = {  # (background, text) colors for each verdict
     "ERROR": ((255, 250, 235), (181, 71, 8)),  # Orange
     "NEEDS_REVIEW": ((255, 250, 235), (181, 71, 8)),
 }  # End of colors
-LABELS = {"NON-COMPLIANT": "NON-COMPLIANT", "COMPLIANT": "COMPLIANT", "ERROR": "COULD NOT CHECK", "NEEDS_REVIEW": "NEEDS REVIEW"}
+LABELS = {"NON-COMPLIANT": "Reject", "COMPLIANT": "Approve", "ERROR": "COULD NOT CHECK", "NEEDS_REVIEW": "NEEDS REVIEW"}
 TEXT, MUTED, BLUE = (16, 24, 40), (102, 112, 133), (24, 73, 169)  # Main text, grey and blue colors
 ASCII = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-", "\u2026": "...", "\u2011": "-", "\u00a0": " "})  # Fancy punctuation -> plain (only used without Arial)
 
@@ -29,6 +31,7 @@ class Report(FPDF):  # A PDF page layout with our footer
 
 
 def build_report(result, image_bytes, file_name="", decision="", notes=""):  # Returns the PDF report as bytes
+    result = presentation_result(result)
     pdf = Report(format="A4")  # A4 paper
     pdf.set_margins(16, 16, 16)  # 16 mm margins
     pdf.set_auto_page_break(True, margin=18)  # Start a new page before the footer
@@ -134,6 +137,10 @@ def build_report(result, image_bytes, file_name="", decision="", notes=""):  # R
             paragraph("No individual checks were listed.", size=9.5, color=MUTED, gap=3)  # Say so
     else:  # Could not check
         paragraph(result.get("message", ""), size=9.5, gap=3)  # The full reason
+
+    if result.get("notes"):
+        label("Notes")
+        paragraph("\n".join(f"- {note}" for note in result["notes"]), size=9.5, gap=4)
 
     removed = result.get("removed_reasons") or []  # Violations removed as not backed by the image
     if removed:  # There were some

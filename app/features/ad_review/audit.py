@@ -1,4 +1,4 @@
-"""Independent evidence audit; disagreement never becomes an automatic approval."""
+"""Independent evidence audit; unresolved evidence is reported as decision notes."""
 
 import json
 

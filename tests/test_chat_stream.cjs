@@ -61,14 +61,31 @@ test('hidden loading indicators override activity display styles', () => {
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
 });
 
-test('uncertain findings display Needs review with rationale and reviewer controls', () => {
-  const start = html.indexOf('function renderResult(');
+test('legacy review outcomes display Approve with notes and reviewer controls', () => {
+  const start = html.indexOf('function approvalReason(');
   const code = html.slice(start, html.indexOf('// What the AI remembers', start));
   const context = vm.createContext({ esc: text => String(text), fmtTime: String, ICON_DOWNLOAD: '' });
   vm.runInContext(code, context);
   const result = context.renderResult({result:'NEEDS_REVIEW', message:'Small text is unreadable.', reasons:[]}, 1);
-  assert.match(result, /Needs review/);
+  assert.match(result, /Approve/);
+  assert.match(result, /Notes/);
+  assert.match(result, /Why approved/);
+  assert.match(result, /no proposed rule violation could be verified/);
   assert.match(result, /Small text is unreadable/);
   assert.match(result, /Human review required/);
-  assert.doesNotMatch(result, /class="verdict good"/);
+  assert.match(result, /class="verdict good"/);
+  assert.doesNotMatch(result, /approval withheld/);
+});
+
+
+test('approval and rejection summaries retain uncertainty notes', () => {
+  const code = html.slice(html.indexOf('function approvalReason('), html.indexOf('// ---------- PDF report ----------'));
+  const context = vm.createContext({ esc: text => String(text), fmtTime: String, ICON_DOWNLOAD: '' });
+  vm.runInContext(code, context);
+  for (const [status, label] of [['COMPLIANT', 'Approve'], ['NON-COMPLIANT', 'Reject'], ['NEEDS_REVIEW', 'Approve']]) {
+    const data = {result: status, review_issues: ['Permit unverified'], reasons: []};
+    assert.match(context.renderResult(data, 1), new RegExp(`class="v">[^<]*${label}</div>`));
+    assert.match(context.summarize(data, 'ad'), new RegExp(label));
+    assert.match(context.summarize(data, 'ad'), /Permit unverified/);
+  }
 });

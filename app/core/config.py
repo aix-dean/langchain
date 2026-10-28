@@ -25,7 +25,7 @@ CHAT_CONTEXT_LIMIT = int(os.getenv("CHAT_CONTEXT_LIMIT", "0")) or max(2000, JUDG
 CHAT_CONTEXT_CHARS = int(CHAT_CONTEXT_LIMIT * 3.5)  # The same limit in characters (about 3.5 characters per token)
 VISION_MAX_TOKENS = int(os.getenv('VISION_MAX_TOKENS', '4096'))
 IMAGE_JUDGE_MAX_TOKENS = int(os.getenv('IMAGE_JUDGE_MAX_TOKENS', '6144'))
-IMAGE_JUDGE_REASONING = os.getenv('IMAGE_JUDGE_REASONING', 'medium').strip()
+IMAGE_JUDGE_REASONING = os.getenv('IMAGE_JUDGE_REASONING', 'off').strip()
 IMAGE_SEED = int(os.getenv('IMAGE_SEED', '42'))
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")  # The Qdrant server (the same one n8n uses)

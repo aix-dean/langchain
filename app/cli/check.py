@@ -1,6 +1,7 @@
 import sys  # Standard library module for reading command-line arguments
 from pathlib import Path  # Standard library module for working with file paths
 
+from app.features.ad_review.checks import presentation_result
 from app.core.config import IMAGE_TYPES  # Accepted image types
 from app.features.ad_review.service import check_image  # The whole check
 
@@ -31,8 +32,10 @@ def main():  # Checks one image from the command line: uv run check.py path\to\a
 
 
 def show(r):  # Prints the final result
-    print(f"\nRESULT: {r['result']}  ({r.get('seconds', '?')} s)")  # The verdict
-    if r["result"] in {"ERROR", "NEEDS_REVIEW"}:
+    r = presentation_result(r)
+    label = {"COMPLIANT": "Approve", "NON-COMPLIANT": "Reject"}.get(r["result"], r["result"])
+    print(f"\nRESULT: {label}  ({r.get('seconds', '?')} s)")  # The verdict
+    if r["result"] == "ERROR":
         print(r["message"])  # Why
     for i, reason in enumerate(r.get("reasons", []), start=1):  # Each violation
         info = reason.get("info", {})  # The rule explanation
@@ -47,6 +50,10 @@ def show(r):  # Prints the final result
         print(r.get("approval_summary", ""))  # Why
         for c in r.get("checks_passed", []):  # Each check made
             print(f"  ✓ {c['check']}: {c['finding']}")  # What was found
+    if r.get("notes"):
+        print("\nNotes:")
+        for note in r["notes"]:
+            print(f"- {note}")
     if r.get("removed_reasons"):  # Made-up violations that were removed
         print("\nRemoved as not backed by the image:", "; ".join(r["removed_reasons"]))  # List them
     print("\nThis is an AI pre-screen, not an ASC decision. A person must review it.")  # Reminder

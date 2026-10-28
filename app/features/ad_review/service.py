@@ -2,7 +2,7 @@ import time  # Standard library module for measuring how long each step takes
 import hashlib
 from datetime import datetime  # Standard library module for the date and time of the check
 
-from app.features.ad_review.checks import error_result, finalize  # Step 3: verify the judge's answer
+from app.features.ad_review.checks import approval_reason, error_result, finalize  # Step 3: verify the judge's answer
 from app.core.config import IMAGE_SEED, IMAGE_JUDGE_REASONING, JUDGE_MODEL, VISION_MODEL, read_prompt
 from app.features.ad_review.judgment import judge_stream  # Step 2: judge the description against the ASC rules
 from app.infrastructure.ollama.vision import describe_image  # Step 1: describe the image
@@ -38,13 +38,17 @@ def check_image(image_bytes, note=""):  # Runs the whole check on one image (not
     timings['judge'] = round(time.perf_counter() - judge_start, 2)
     verify_start = time.perf_counter()
     yield "stage", "verify"  # Step 3 starts
-    result = finalize(raw, description)  # Validate evidence and route uncertainty to review.
+    result = finalize(raw, description)  # Validate evidence and record uncertainty as notes.
     if result['result'] in {'COMPLIANT', 'NON-COMPLIANT'}:
         audit_issues = audit_judgment(result, description, retrieved)
         if audit_issues:
             issues = result.get('review_issues', []) + audit_issues
-            result.update(result='NEEDS_REVIEW', review_issues=issues, message=' '.join(issues),
-                          approval_summary='', checks_passed=[])
+            result.update(review_issues=issues, notes=list(dict.fromkeys(issues)), message=' '.join(issues))
+            if result['result'] == 'COMPLIANT':
+                result['approval_summary'] = approval_reason(result.get('checks_passed') or [])
+            result['explanation'] = (result.get('approval_summary') if result['result'] == 'COMPLIANT'
+                                     else result.get('explanation', 'Not approved: verified violations were found.'))
+            result['explanation'] += ' Notes: ' + ' '.join(audit_issues)
     result["description"] = description  # Include the description, for the reviewer
     timings['verify'] = round(time.perf_counter() - verify_start, 2)
     result['timings'] = timings
