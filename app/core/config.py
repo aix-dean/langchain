@@ -43,3 +43,8 @@ def read_prompt(name):  # Reads one instruction file from the prompts folder
     return (PROMPTS / name).read_text(encoding="utf-8")  # Its full text
 
 MACEA_COLLECTION = "macea_guidelines"
+
+# Per-process AI limits; deploy with one Uvicorn worker.
+MAX_CONCURRENT_AI = int(os.getenv("MAX_CONCURRENT_AI", "2"))
+MAX_QUEUED_AI = int(os.getenv("MAX_QUEUED_AI", "16"))
+AI_QUEUE_TIMEOUT_SECONDS = float(os.getenv("AI_QUEUE_TIMEOUT_SECONDS", "120"))

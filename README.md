@@ -724,3 +724,25 @@ Swagger metadata lives in `app/api/documentation.py`, feature routes own their
 operation descriptions, and status output is defined in
 `app/features/status/schemas.py`. The upstream UI version and license are recorded
 in `static/vendor/swagger-ui/README.md`.
+
+## Concurrent AI processing
+
+A single backend worker admits up to `MAX_CONCURRENT_AI=2` simultaneous chat or
+image-review jobs. Up to `MAX_QUEUED_AI=16` additional jobs wait for a slot, for
+at most `AI_QUEUE_TIMEOUT_SECONDS=120` seconds. Waiting clients receive the
+existing `queued` event; a full queue or timeout produces a terminal `error`
+event. Slots are returned on completion or failure. Warm-up uses one slot.
+`/api/status` reports `active_jobs`, `queued_jobs`, `max_concurrent_jobs`, and
+`busy` (true when any job is active). Document ingestion retains its separate
+lock to protect collection updates.
+
+Keep Uvicorn at one worker: limits are per process. Set the limit to 1 for serial
+processing. Ollama has a separate limit: `OLLAMA_NUM_PARALLEL=2` on the local
+generation server enables up to two model requests after restarting Ollama.
+Parallel requests increase context-cache memory demand. Backend concurrency
+alone does not guarantee concurrent GPU generation.
+
+On the current PC (Ollama 0.40.0), Qwen 3.5 logs that its `qwen35` architecture
+does not support parallel requests. The backend can overlap requests, but Ollama
+still serializes generation for that model even with `OLLAMA_NUM_PARALLEL=2`.
+Parallel generation requires a supported model/runtime, not just a higher limit.

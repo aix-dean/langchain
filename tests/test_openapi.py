@@ -57,7 +57,7 @@ class OpenApiTests(unittest.TestCase):
         self.assertIn('Content-Disposition', report['headers'])
 
     def test_status_response_model_preserves_existing_fields(self):
-        sample = dict(vision_model='qwen3.5:9b', judge_model='qwen3.5:9b', embedding_model='nomic-embed-text', collection='asc_guidelines', ollama=True, missing_models=[], qdrant=True, passages=438, judge_tools=True, device='GPU', busy=False, context_limit_chars=17094, context_limit_tokens=4884)
+        sample = dict(vision_model='qwen3.5:9b', judge_model='qwen3.5:9b', embedding_model='nomic-embed-text', collection='asc_guidelines', ollama=True, missing_models=[], qdrant=True, passages=438, judge_tools=True, device='GPU', busy=False, active_jobs=0, queued_jobs=0, max_concurrent_jobs=2, context_limit_chars=17094, context_limit_tokens=4884)
         # The route retains the original function object; patch its adapters instead.
         with patch('app.features.status.service.ollama.Client') as client, patch('app.features.status.service.passage_count', return_value=438), patch('app.features.status.service.model_capabilities', return_value={'tools'}):
             client.return_value.list.return_value.models = []
