@@ -12,6 +12,7 @@ from app.features.chat import routes as chat
 from app.features.documents import routes as documents
 from app.features.reports import routes as reports
 from app.features.status import routes as status
+from app.features.macea import routes as macea
 
 
 def create_app(*, warm_models: bool = True) -> FastAPI:
@@ -38,7 +39,7 @@ def create_app(*, warm_models: bool = True) -> FastAPI:
             swagger_favicon_url="/docs-assets/favicon.svg",
             swagger_ui_parameters=SWAGGER_PARAMETERS,
         )
-    for feature in (pages, chat, ad_review, documents, reports, status):
+    for feature in (pages, chat, ad_review, documents, reports, status, macea):
         application.include_router(feature.router)
     return application
 

@@ -746,3 +746,7 @@ On the current PC (Ollama 0.40.0), Qwen 3.5 logs that its `qwen35` architecture
 does not support parallel requests. The backend can overlap requests, but Ollama
 still serializes generation for that model even with `OLLAMA_NUM_PARALLEL=2`.
 Parallel generation requires a supported model/runtime, not just a higher limit.
+
+## MACEA text services
+
+Phase 1 adds `POST /api/macea` for service selection, request-letter drafting, pasted-letter review, submission checklists, reviewer-comment responses and requirements questions. See [the API PRD](docs/macea-services-prd.md). It accepts bounded JSON case facts, uses MACEA retrieval, streams NDJSON and never adds applicant text to Qdrant. It does not implement MACEA image review or official submission. The matching frontend and Firestore rule update are required for the full workflow.

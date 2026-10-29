@@ -5,7 +5,8 @@ from app.api.streaming import stream_events
 from app.api.documentation import NDJSONResponse, CHAT_RESPONSES
 from app.features.ad_review.uploads import read_image
 from app.features.ad_review.service import check_image
-from app.features.chat.service import chat_stream
+from app.features.chat.service import chat_stream, required_authorities
+from app.features.chat.routing import AuthorityUnavailable
 
 router = APIRouter(tags=["chat"])
 
@@ -23,6 +24,14 @@ def chat(message: str = Form("", description="Question or reviewer context. Opti
     if used > CHAT_CONTEXT_CHARS:  # The chat is full: the AI couldn't re-read all of it
         raise HTTPException(409, "This chat has reached its length limit. Start a new chat to continue.")  # The page shows this
     if image is not None and image.filename:  # An image is attached: check it against the ASC guidelines
+        try:
+            authorities = required_authorities(message, earlier if isinstance(earlier, list) else [])
+        except AuthorityUnavailable:
+            image.file.close()
+            raise HTTPException(422, 'Please specify ASC for an ad-content image check. MACEA image screening is not available yet.')
+        if 'macea' in authorities:
+            image.file.close()
+            raise HTTPException(422, 'MACEA image screening is not available yet. Use the text-only MACEA service, or start an explicit ASC review.')
         data = read_image(image)  # The image
         return stream_events(lambda: check_image(data, note=message))  # The full check; the message is passed on as context
     if not message.strip():  # No image and no text

@@ -8,6 +8,8 @@ API_DESCRIPTION = """Local API for Aida's ASC and MACEA guidelines assistant.
 ### Using this API
 - Chat, image checks, document uploads and reports accept **multipart/form-data**.
 - `history` and report `data` are **JSON encoded strings inside form fields**.
+- MACEA text assistance (`POST /api/macea`) accepts **application/json** with
+  explicit task, case facts, message and bounded history; it streams NDJSON.
 - Chat, image checks and uploads return **application/x-ndjson**: one JSON object
   per line. This is a stream, not a JSON array or Server-Sent Events.
 - Chat/check success ends with `done`; a processing `error` ends the stream.
@@ -32,6 +34,7 @@ The Swagger UI assets are served locally. The OpenAPI schema is available at
 """
 
 TAGS = [
+    {"name": "MACEA services", "description": "Text-only request drafting, letter review and submission preparation. No ingestion or official submission."},
     {"name": "status", "description": "Readiness of Ollama, installed models, Qdrant and the ASC collection."},
     {"name": "chat", "description": "Guideline questions, follow-ups and optional ASC ad-image checks."},
     {"name": "ad-review", "description": "Standalone ASC image pre-screen with progress and evidence verification."},

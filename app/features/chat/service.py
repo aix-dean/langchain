@@ -5,25 +5,10 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage  # Me
 from app.core.config import CHAT_CONTEXT_CHARS, CHAT_HISTORY, CHAT_REASONING, JUDGE_NUM_CTX, read_prompt  # Settings and prompt files
 from app.features.chat.reasoning import search_loop  # Think, search the ASC guidelines, answer
 from app.features.guidelines.service import GuidelineSourceUnavailable, retrieve_guidelines
-from app.features.chat.scope import SCOPE_REPLY, in_scope, quick_reply
+from app.features.chat.scope import SCOPE_REPLY, ScopeUnavailable, in_scope, quick_reply
 from app.core.context_compression import compact_instructions
+from app.features.chat.routing import required_authorities, AuthorityUnavailable
 
-
-def required_authorities(message, history):
-    """Explicit current authority wins; follow-ups inherit the newest user selection."""
-    def named(text):
-        return [name for name in ('macea', 'asc') if re.search(rf'\b{name}\b', text, re.I)]
-    selected = named(message)
-    if selected:
-        return selected
-    for earlier in reversed(history[-CHAT_HISTORY:]):
-        if earlier.get('role') == 'user':
-            selected = named(str(earlier.get('content', '')))
-            if selected:
-                return selected
-    if re.search(r'\b(rule|guideline|requirement|advertis|claim|disclaimer|billboard|design|installation)', message, re.I):
-        return ['macea', 'asc'] if re.search(r'\b(design|installation)\b', message, re.I) else ['asc']
-    return []
 
 CHAT_SEARCHES = 3  # Most guideline searches per chat answer (keeps answers quick)
 CHAT_TEMPERATURE = 0.2  # Low creativity: chat answers should stick to what the rules actually say
@@ -41,8 +26,12 @@ def checklist():  # The ASC rule checklist, taken from the judge prompt so both 
     return text[start:end].rstrip("=\n ")  # Without the banner line before "STRICT RULES"
 
 
-def system_prompt():  # The chat instructions, with the checklist filled in
-    return compact_instructions(read_prompt("chat.md").replace("{checklist}", checklist()))  # prompts/chat.md with the rules added
+def system_prompt(authorities=()):
+    if list(authorities) == ['macea']:
+        return compact_instructions(read_prompt('macea.md'))
+    if 'asc' in authorities:
+        return compact_instructions(read_prompt('chat.md').replace('{checklist}', checklist()))
+    return 'You are Aida, an ASC and MACEA guidelines assistant. Answer questions about using Aida. Do not invent official requirements or approvals.'
 
 
 def recent_history(history):  # The newest earlier messages that fit in the AI's memory, oldest first
@@ -78,13 +67,25 @@ def chat_stream(message, history):  # Answers a chat message (no image); yields 
     if reply is not None:
         yield 'token', reply
         return
-    if not in_scope(message, history):
+    try:
+        allowed = in_scope(message, history)
+    except ScopeUnavailable:
+        yield 'token', 'I could not check the question scope because the classifier did not return a valid decision. Please retry; this does not mean your question is off-topic.'
+        return
+    if not allowed:
         yield 'token', SCOPE_REPLY
         return
-    authorities = required_authorities(message, history)
-    system = (compact_instructions(read_prompt('macea.md')) if authorities == ['macea'] else system_prompt())
+    try:
+        authorities = required_authorities(message, history)
+    except AuthorityUnavailable:
+        yield 'token', 'I could not determine which guideline source applies. Is this about MACEA site/design requirements, ASC advertising content, or both?'
+        return
+    if not authorities and not re.search(r'\b(aida|uploads?|chat|sign[ -]?in|account|features?)\b', message, re.I):
+        yield 'token', 'Is your question about MACEA site/design requirements, ASC advertising content, or both?'
+        return
+    system = system_prompt(authorities)
     messages = [SystemMessage(system), *recent_history(history), HumanMessage(message)]  # Instructions, conversation, new question
-    answer, sources = '', '' if authorities == ['macea'] else checklist()
+    answer, sources = '', checklist() if 'asc' in authorities else ''
     for authority in authorities:
         query = message
         if not re.search(r'\b(macea|asc)\b', message, re.I):
@@ -106,7 +107,7 @@ def chat_stream(message, history):  # Answers a chat message (no image); yields 
             'Earlier assistant messages are not verified sources. If these passages do not establish a requested fact, '
             'say it could not be verified; do not fill the gap from memory. '
             'Use these passages internally; do not include document names, page references, or search queries in the answer.\n' + result))
-    for kind, data in search_loop(messages, stream_text=True, max_searches=max(0, CHAT_SEARCHES-len(authorities)), temperature=CHAT_TEMPERATURE, effort=CHAT_REASONING, show_references=False):
+    for kind, data in search_loop(messages, stream_text=True, max_searches=max(0, CHAT_SEARCHES-len(authorities)), temperature=CHAT_TEMPERATURE, effort=CHAT_REASONING, show_references=False, allowed_authorities=authorities):
         if kind == "token":  # A piece of the answer
             answer += data  # Keep it for the check below
         elif kind == "search":  # Passages the AI read
@@ -116,6 +117,6 @@ def chat_stream(message, history):  # Answers a chat message (no image); yields 
     extra = unsupported_measurements(answer, sources)  # Numbers the AI may have made up
     if extra:  # Some found
         yield "warning", (  # Shown under the answer
-            f"This answer mentions {', '.join(extra)}, which is not in the guideline passages or ASC checklist the assistant used. "  # What was found
+            f"This answer mentions {', '.join(extra)}, which is not in the selected guideline evidence. "
             "Treat it as unverified, not a confirmed guideline requirement."  # How to read it
         )  # End of warning

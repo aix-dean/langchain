@@ -23,7 +23,7 @@ class OpenApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/docs-assets/swagger-ui-bundle.js').status_code, 200)
 
     def test_paths_are_documented_with_summaries_and_stable_ids(self):
-        expected = {'/api/chat', '/api/check', '/api/documents', '/api/report', '/api/status'}
+        expected = {'/api/chat', '/api/check', '/api/documents', '/api/report', '/api/status', '/api/macea'}
         self.assertEqual(set(self.schema['paths']), expected)
         identifiers = []
         for path in self.schema['paths'].values():
