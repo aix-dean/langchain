@@ -277,14 +277,7 @@ details.panel > summary .count { margin-left: auto; font-weight: 500; color: var
   </div>
   <button type="button" class="side-btn" id="newChat" title="New chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>New chat</span></button>
   <!-- <a class="side-btn" href="/upload">Upload documents</a> -->
-  <div class="side-section">
-    <div class="side-label">Chats</div>
-    <ul class="history-list" id="historyList"></ul>
-  </div>
-  <div class="side-foot">
-    <button type="button" class="link-btn" id="clearHistory">Clear all chats</button>
-    <p class="history-note">Saved in this browser only.</p>
-  </div>
+  <div class="side-foot"><p class="history-note">Chats last until this page is refreshed.</p></div>
 </aside>
 <div class="scrim" id="scrim"></div>
 <div class="app">
@@ -361,8 +354,7 @@ let history = [];       // What the AI remembers: [{role, content}]
 let attached = null;    // The image attached to the next message (optional)
 let controller = null;  // Lets the Stop button cancel
 let msgCount = 0;       // Gives each message unique ids
-let chatId = null;      // Id of this conversation in the saved history (set when it's first saved)
-let entries = [];       // What's shown on screen, in a form that can be saved and shown again
+let entries = [];       // Current conversation entries, kept in memory only
 sendBtn.innerHTML = ICON_SEND;
 const greetings = [
   "Hi, I'm Aida. How can I help?",
@@ -494,7 +486,7 @@ input.addEventListener("input", () => { autosize(); updateButton(); });
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!controller) send(); } });
 $("composer").addEventListener("submit", (e) => { e.preventDefault(); if (controller) controller.abort(); else send(); });
 document.querySelectorAll(".starter[data-q]").forEach((b) => b.addEventListener("click", () => { input.value = b.dataset.q; send(); }));
-$("newChat").addEventListener("click", () => { if (!controller || confirm("Stop the current answer and start a new chat?")) openChat(""); });
+$("newChat").addEventListener("click", () => { if (!controller || confirm("Stop the current answer and start a new chat?")) location.reload(); });
 
 // ---------- Adding messages ----------
 function addUser(text, file) {
@@ -519,9 +511,6 @@ async function send() {
   if (!text && !file) return;
   input.value = ""; autosize(); clearAttachment();
   addUser(text, file);
-  const userEntry = { t: "user", text, img: null, name: file?.name || "" };   // Saved once the answer is complete
-  entries.push(userEntry);
-  if (file) imageToDataURL(file).then((d) => { userEntry.img = d; }).catch(() => {});   // Compressed copy, for showing it again and for the PDF
   scrollDown(true);
   const form = new FormData();
   form.append("message", text);
@@ -745,133 +734,27 @@ async function downloadReport(btn, result, file, id) {
   btn.disabled = false; btn.innerHTML = label;
 }
 
-// ---------- Saved chat history (this browser's local storage) ----------
-// Each finished answer or check is saved, so the conversation survives a reload and older chats can be reopened.
-// Images are stored as compressed copies (for showing them again and for the PDF report).
-const STORE_KEY = "ada.chats", CURRENT_KEY = "ada.current", MAX_CHATS = 30;
-const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
-function loadChats() { const list = readStore(STORE_KEY, []); return Array.isArray(list) ? list : []; }
-function storeChats(list) {   // Saves the list; if the browser is out of space, drops old images, then old chats
-  list = list.slice(0, MAX_CHATS);
-  for (let tries = 0; tries < 60; tries++) {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); return true; }
-    catch {
-      const withImage = [...list].reverse().find((c) => c.id !== chatId && c.entries.some((e) => e.img));   // Oldest other chat with images
-      if (withImage) withImage.entries.forEach((e) => { e.img = null; });
-      else if (list.length > 1) list = list.filter((c) => c.id === chatId).concat(list.filter((c) => c.id !== chatId).slice(0, -1));
-      else { list[0]?.entries.forEach((e) => { e.img = null; }); if (tries > 1) return false; }
-    }
-  }
-  return false;
-}
-function setCurrent(id) { try { localStorage.setItem(CURRENT_KEY, id || ""); } catch {} }
-function saveChat() {
-  if (!entries.length) return;
-  chatId = chatId || Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const first = entries.find((e) => e.t === "user");
-  const title = (first?.text || (first?.name ? "Image check: " + first.name : "Chat")).slice(0, 80);
-  const list = loadChats().filter((c) => c.id !== chatId);
-  list.unshift({ id: chatId, title, updated: Date.now(), history, entries });
-  storeChats(list);
-  setCurrent(chatId);
-  renderHistory();
-}
-function record(entry) { entries.push(entry); saveChat(); }
-function openChat(id) { setCurrent(id); location.reload(); }   // Show another saved chat ("" = a new chat)
-function deleteChat(id) {
-  storeChats(loadChats().filter((c) => c.id !== id));
-  if (id === chatId) openChat(""); else renderHistory();
-}
+// Conversation entries live only in memory; no chat is saved or restored.
+function record(entry) { entries.push(entry); }
+// Remove chat data saved by earlier versions, without affecting UI preferences.
+try { localStorage.removeItem("ada.chats"); localStorage.removeItem("ada.current"); } catch {}
 
-// Compressed JPEG copy of an image (longest side up to 1600 px)
-async function imageToDataURL(file, max = 1600) {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
-  const g = canvas.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, canvas.width, canvas.height);
-  g.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.82);
-}
-async function dataURLToFile(dataURL, name) {
-  const blob = await (await fetch(dataURL)).blob();
-  return new File([blob], (name || "image").replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
-}
-
-// Shows a finished check: the result card, the PDF button, and the saved decision and notes
+// Shows a finished check: the result card, the PDF button, and the current decision and notes
 function showCheckResult(el, final, file, entry) {
   const id = ++msgCount;
   el.innerHTML = renderResult(final, id);
   const pdf = el.querySelector(".pdf");
   if (pdf) {
     if (file) pdf.addEventListener("click", (e) => downloadReport(e.currentTarget, final, file, id));
-    else { pdf.disabled = true; pdf.title = "The image wasn't saved with this chat (not enough browser storage), so the PDF can't be made."; }
+    else { pdf.disabled = true; pdf.title = "The image is unavailable, so the PDF cannot be made."; }
   }
   const radio = el.querySelector(`input[name="decision-${id}"][value="${entry.decision}"]`);
   if (radio) radio.checked = true;
   const notes = el.querySelector(".notes");
   if (notes) notes.value = entry.notes || "";
-  el.addEventListener("change", (e) => { if (e.target.name === `decision-${id}`) { entry.decision = e.target.value; saveChat(); } });
-  notes?.addEventListener("input", () => { entry.notes = notes.value; clearTimeout(notes._t); notes._t = setTimeout(saveChat, 500); });
+  el.addEventListener("change", (e) => { if (e.target.name === `decision-${id}`) { entry.decision = e.target.value; } });
+  notes?.addEventListener("input", () => { entry.notes = notes.value; });
 }
-
-// Shows a saved chat again after a reload
-async function restoreChat() {
-  let id = ""; try { id = localStorage.getItem(CURRENT_KEY) || ""; } catch {}   // Plain text, not JSON
-  const saved = id && loadChats().find((c) => c.id === id);
-  if (!saved) return;
-  chatId = saved.id; entries = saved.entries || []; history = Array.isArray(saved.history) ? saved.history : [];
-  let lastFile = null;
-  for (const e of entries) {
-    if (e.t === "user") {
-      lastFile = e.img ? await dataURLToFile(e.img, e.name) : null;
-      addUser(e.text, lastFile);
-      if (!e.img && e.name) thread.lastChild.insertAdjacentHTML("afterbegin", `<div class="bubble" style="opacity:.75">📎 ${esc(e.name)}</div>`);
-    } else if (e.t === "chat") {
-      const body = addAssistant('<div class="content md"></div>');
-      body.querySelector(".content").innerHTML = e.answer ? md(e.answer) + (e.stopped ? '<p style="color:var(--muted)"><em>Stopped.</em></p>' : "")
-        : `<div class="error-box">${esc(e.error && e.error !== "Stopped." ? "Something went wrong: " + e.error : "Stopped.")}</div>`;
-      if (e.warning) body.insertAdjacentHTML("beforeend", `<div class="note">⚠ ${esc(e.warning)}</div>`);
-    } else if (e.t === "check") {
-      const body = addAssistant('<div class="result"></div>');
-      if (e.result) showCheckResult(body.querySelector(".result"), e.result, lastFile, e);
-      else body.querySelector(".result").innerHTML = `<div class="error-box">${esc(e.error && e.error !== "Check stopped." ? "The check could not run: " + e.error : "Check stopped.")}</div>`;
-    }
-  }
-  scrollDown(true);
-}
-
-// The chat list in the sidebar, grouped by date like other chat apps
-function dateGroup(time) {
-  const day = (t) => new Date(new Date(t).toDateString()).getTime();
-  const days = Math.round((day(Date.now()) - day(time)) / 86400000);
-  return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 7 ? "Previous 7 days" : days < 30 ? "Previous 30 days" : "Older";
-}
-function renderHistory() {
-  const list = loadChats(), ul = $("historyList");
-  ul.innerHTML = list.length ? "" : '<li class="history-empty">No chats yet.</li>';
-  let group = "";
-  for (const c of list) {
-    const g = dateGroup(c.updated);
-    if (g !== group) { group = g; ul.insertAdjacentHTML("beforeend", `<li class="history-group">${g}</li>`); }
-    const li = document.createElement("li");
-    li.className = "history-item" + (c.id === chatId ? " current" : "");
-    li.innerHTML = `<button type="button" class="open"></button><button type="button" class="del" aria-label="Delete this chat" title="Delete this chat">✕</button>`;
-    const open = li.querySelector(".open");
-    open.textContent = c.title;
-    open.title = `${c.title}\n${new Date(c.updated).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`;
-    open.addEventListener("click", () => { if (c.id !== chatId && (!controller || confirm("Stop the current answer and open this chat?"))) openChat(c.id); else closeDrawer(); });
-    li.querySelector(".del").addEventListener("click", () => { if (confirm(`Delete "${c.title}"?`)) deleteChat(c.id); });
-    ul.appendChild(li);
-  }
-  const current = list.find((c) => c.id === chatId);
-  $("chatTitle").textContent = current ? current.title : "";
-}
-$("clearHistory").addEventListener("click", () => {
-  if (!confirm("Delete all saved chats from this browser?")) return;
-  try { localStorage.removeItem(STORE_KEY); localStorage.removeItem(CURRENT_KEY); } catch {}
-  openChat("");
-});
 
 // Collapsing the sidebar (remembered), and the slide-in sidebar on narrow screens
 const layout = $("layout"), narrow = matchMedia("(max-width: 760px)");
@@ -888,8 +771,6 @@ $("menuBtn").addEventListener("click", () => layout.classList.add("open"));
 $("scrim").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 try { if (localStorage.getItem(SIDEBAR_KEY) === "collapsed") setCollapsed(true); } catch {}
-renderHistory();
-restoreChat().then(renderHistory);
 
 // ---------- Setup check (only shown when something needs fixing) ----------
 async function refreshStatus() {

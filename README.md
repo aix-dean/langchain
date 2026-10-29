@@ -257,13 +257,10 @@ The page is a simple chat. If something isn't ready (Ollama or Qdrant not runnin
 Use **Shift + Enter** for a new line, the **■** button to stop an answer, and **New chat** (in the sidebar)
 to start over.
 
-**Chats are saved automatically** in this browser (its local storage): reloading or reopening the page
-brings the conversation back, and the assistant still remembers it for follow-up questions. Your chats are listed in the
-**sidebar on the left**, grouped by date: click one to reopen it, hover and click **✕** to delete it, or
-use **Clear all chats** at the bottom. The sidebar's top button collapses it to a slim strip (and
-expands it again); on a phone, open it with the **☰** button. The 30 most
-recent chats are kept. They are stored only in this browser on this computer, not on the server, so
-another browser or computer won't see them, and clearing the browser's site data deletes them.
+**Chats are kept in memory only.** Follow-up questions use the current conversation until
+refreshing, closing the page, or choosing **New chat**. Chats and uploaded images are not
+saved to browser local storage. Previously saved chat data is removed when the page loads.
+The sidebar can still be collapsed or opened on a phone.
 
 ### Checking an ad
 
@@ -302,7 +299,7 @@ another browser or computer won't see them, and clearing the browser's site data
 7. **Ask follow-ups** in the same chat, e.g. *"How do I fix issue 1?"* or *"Why is the energy claim
    not allowed?"*. The assistant knows the result of the check above.
 
-> The decision and notes are saved with the chat in this browser, but that isn't a lasting record:
+> The decision and notes last only for the current page session:
 > download the PDF to keep them. Choose the decision and write the notes **before** clicking the button.
 >
 > Ctrl + P also prints the page (always in light colors), but the PDF report is the cleaner record.
@@ -587,10 +584,7 @@ Set `PORT=8001` in `.env` and open `http://127.0.0.1:8001`.
   page, but the AI finishes its current step in the background first.
 - **Chat answers can still be wrong.** The assistant is told to stick to the ASC rules, and made-up
   measurements are flagged, but always check important answers against the ASC Guidebook.
-- **Chats are saved only in this browser.** They aren't shared between browsers or computers, and
-  clearing the browser's site data deletes them. Images are kept as compressed copies; if the browser
-  runs out of storage space (about 5 MB), images of the oldest chats are removed first, then the oldest
-  chats. A chat whose image was removed still shows its result, but can't make a PDF report any more.
+- **Chats are not persisted.** Refreshing or closing the page clears the conversation and images.
 - **Decisions aren't saved.** Use **Download PDF report**.
 - **The rules are from the ASC Guidebook of March 2019** (the version loaded in Qdrant and
   summarized in the prompts). Update both if ASC publishes changes.
