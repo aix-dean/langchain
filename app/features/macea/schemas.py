@@ -41,7 +41,7 @@ class HistoryTurn(BaseModel):
 class AssistanceRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     context: CaseContext
-    message: str = Field(min_length=1, max_length=4000)
+    message: str = Field(min_length=1, max_length=8000)
     history: list[HistoryTurn] = Field(default_factory=list, max_length=12)
 
     @model_validator(mode='after')

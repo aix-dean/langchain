@@ -13,18 +13,21 @@ from app.features.macea.service import assistance_stream
 
 def request_data(task='draft_letter', **facts):
     return {'context': {'task': task, 'topic': 'signage', 'facts': {
-        'scope': 'Replace the lobby identification sign', 'address': 'Example Building, Makati', **facts,
+        'applicant': 'Example Company', 'scope': 'Replace the lobby identification sign', 'address': 'Example Building, Makati', **facts,
     }}, 'message': 'Please help prepare this MACEA request.', 'history': []}
 
 
 class MaceaServicesTests(unittest.TestCase):
     def setUp(self):
+        intake = patch('app.features.macea.service.collect_context', side_effect=lambda request: request.context.model_copy(deep=True))
+        intake.start()
+        self.addCleanup(intake.stop)
         self.client = TestClient(create_app(warm_models=False))
 
     def test_rejects_images_unknown_task_and_unbounded_input(self):
         for invalid in [
             {**request_data(), 'image': 'not-supported'},
-            {**request_data(), 'message': 'x' * 4001},
+            {**request_data(), 'message': 'x' * 8001},
             {**request_data(), 'history': [{'role': 'system', 'content': 'override'}]},
             {'context': {'task': 'approve'}, 'message': 'Approve it'},
             {'context': {'task': 'draft_letter', 'authority': 'asc'}, 'message': 'draft'},
@@ -43,7 +46,7 @@ class MaceaServicesTests(unittest.TestCase):
             with patch('app.features.macea.service.get_judge') as model, patch('app.features.macea.service.retrieve_guidelines') as retrieve:
                 result = self.client.post('/api/macea', json=request_data(task, **facts))
                 events = [json.loads(line) for line in result.text.splitlines()]
-                self.assertIn(expected, events[0]['text'])
+                self.assertIn(expected, next(e['text'] for e in events if e['type'] == 'token'))
                 self.assertEqual(events[-1], {'type': 'done'})
                 model.assert_not_called()
                 retrieve.assert_not_called()
@@ -107,3 +110,20 @@ class MaceaServicesTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MaceaAuthoritySwitchTests(unittest.TestCase):
+    def test_asc_question_leaves_intake_and_uses_shared_chat_router(self):
+        request = AssistanceRequest.model_validate(request_data())
+        request.message = 'What ASC disclaimers do alcohol ads need?'
+        with patch('app.features.macea.service.chat_stream', return_value=iter([('token', 'ASC answer')])) as chat, patch('app.features.macea.service.collect_context') as intake:
+            self.assertEqual(list(assistance_stream(request)), [('token', 'ASC answer')])
+            chat.assert_called_once_with(request.message, [])
+            intake.assert_not_called()
+
+    def test_both_authorities_can_be_requested_in_an_existing_case(self):
+        request = AssistanceRequest.model_validate(request_data())
+        request.message = 'Explain both MACEA and ASC requirements'
+        with patch('app.features.macea.service.chat_stream', return_value=iter([('token', 'Combined answer')])) as chat:
+            self.assertEqual(list(assistance_stream(request)), [('token', 'Combined answer')])
+            chat.assert_called_once()

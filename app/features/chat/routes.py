@@ -7,6 +7,9 @@ from app.features.ad_review.uploads import read_image
 from app.features.ad_review.service import check_image
 from app.features.chat.service import chat_stream, required_authorities
 from app.features.chat.routing import AuthorityUnavailable
+from app.features.chat.unified import unified_stream
+from app.features.macea.schemas import CaseContext
+from pydantic import ValidationError
 
 router = APIRouter(tags=["chat"])
 
@@ -15,7 +18,11 @@ router = APIRouter(tags=["chat"])
     description="Ask ASC/MACEA questions or attach an image for an ASC check. Supply prior turns in history as a JSON-encoded array of role/content objects. An image message is treated as a reviewer note, not text printed in the ad. Malformed history JSON currently falls back to an empty history.",
     response_class=NDJSONResponse, responses=CHAT_RESPONSES,
 )
-def chat(message: str = Form("", description="Question or reviewer context. Optional when an image is attached.", examples=["What must an ASC alcohol billboard include?"]), history: str = Form("[]", description="JSON-encoded prior turns; roles are user or assistant, with a content string.", examples=['[{"role":"user","content":"What is MACEA?"},{"role":"assistant","content":"Previous answer"}]']), image: UploadFile | None = File(None, description="Optional JPG/PNG advertisement, up to MAX_IMAGE_MB (default 20 MB).")):  # Text, earlier messages (JSON), optional image
+def chat(context: str = Form("", description="Optional saved applicant context for the unified conversation."), message: str = Form("", description="Question or reviewer context. Optional when an image is attached.", examples=["What must an ASC alcohol billboard include?"]), history: str = Form("[]", description="JSON-encoded prior turns; roles are user or assistant, with a content string.", examples=['[{"role":"user","content":"What is MACEA?"},{"role":"assistant","content":"Previous answer"}]']), image: UploadFile | None = File(None, description="Optional JPG/PNG advertisement, up to MAX_IMAGE_MB (default 20 MB).")):  # Text, earlier messages (JSON), optional image
+    try:
+        case = CaseContext.model_validate_json(context) if context else None
+    except ValidationError:
+        raise HTTPException(422, "Invalid saved applicant details.")
     try:  # The history must be valid JSON
         earlier = json.loads(history)  # [{"role": "user" | "assistant", "content": "..."}]
     except json.JSONDecodeError:  # Broken history
@@ -36,4 +43,4 @@ def chat(message: str = Form("", description="Question or reviewer context. Opti
         return stream_events(lambda: check_image(data, note=message))  # The full check; the message is passed on as context
     if not message.strip():  # No image and no text
         raise HTTPException(400, "Type a message or attach an image.")  # Nothing to do
-    return stream_events(lambda: chat_stream(message, earlier if isinstance(earlier, list) else []))  # A chat answer
+    return stream_events(lambda: unified_stream(message, earlier if isinstance(earlier, list) else [], case))  # A chat answer

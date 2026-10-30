@@ -7,6 +7,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import CHAT_REASONING, JUDGE_NUM_CTX, read_prompt
 from app.features.guidelines.service import GuidelineSourceUnavailable, retrieve_guidelines
 from app.features.macea.schemas import AssistanceRequest
+from app.features.macea.intake import collect_context
+from app.features.chat.routing import direct_authorities
+from app.features.chat.service import chat_stream
+from app.features.macea.intake import collect_context
+from app.features.chat.routing import direct_authorities
+from app.features.chat.service import chat_stream
 from app.infrastructure.ollama.models import get_judge
 
 TOPICS = {
@@ -50,7 +56,7 @@ def draft_letter(context, sources):
         f"This letter requests review and does not represent permission to start work.\n\n"
         f"Thank you for your consideration.\n\nSincerely,\n\n{value('signatory', 'signatory name and position')}\n"
         f"{value('applicant', 'applicant / company')}\n[Contact details]",
-        '**Document inventory — applicant declared; not verified attachments**\n\n' +
+        '**Document inventory â€” applicant declared; not verified attachments**\n\n' +
         (facts.attachments.strip() or '[List document names and whether each is available or being prepared.]'),
         '**Before using this draft**\n\n' +
         ('Complete: ' + ', '.join(missing) + '. ' if missing else '') +
@@ -65,17 +71,33 @@ def draft_letter(context, sources):
 
 
 def assistance_stream(request: AssistanceRequest):
-    context = request.context
+    # A saved MACEA case is context, not a permanent authority selection.
+    # Route explicit ASC/content questions before continuing the applicant intake.
+    if 'asc' in direct_authorities(request.message):
+        yield from chat_stream(request.message, [turn.model_dump() for turn in request.history])
+        return
+    context = collect_context(request)
+    yield 'case_context', {'context': context.model_dump()}
     facts = context.facts
     if context.task == 'review_letter' and not facts.letter.strip():
-        yield 'token', 'Paste your letter in the Letter text field, then send your review request. Private file and image review is not available in this service yet.'
+        yield 'token', 'Paste your letter here in the chat, and I’ll review it. Private file and image review is not available in this service yet.'
         return
     if context.task == 'respond_comments' and not facts.reviewer_comments.strip():
-        yield 'token', 'Paste the reviewer comments in the Reviewer comments field so I can help prepare a response.'
+        yield 'token', 'Paste the reviewer comments here so I can help prepare a response.'
         return
     if context.task != 'requirements' and not facts.scope.strip() and context.task not in ('review_letter', 'respond_comments'):
-        yield 'token', 'Describe the proposed work in Work description. Include the property or building address if known; unknown details can remain blank.'
+        yield 'token', 'Describe the proposed work. Which property or building is it for, if known?'
         return
+    if context.task == 'draft_letter' and not re.search(r'\b(placeholders?|skip|draft now|don.t know)\b', request.message, re.I):
+        missing = [label for key, label in [('applicant', 'the applicant or company name'), ('address', 'the property or building address')] if not getattr(facts, key).strip()]
+        if missing:
+            yield 'token', 'What is ' + ' and '.join(missing) + '? You can also say “use placeholders” to draft with those details left blank.'
+            return
+    if context.task == 'draft_letter' and not re.search(r'\b(placeholders?|skip|draft now|don.t know)\b', request.message, re.I):
+        missing = [label for key, label in [('applicant', 'the applicant or company name'), ('address', 'the property or building address')] if not getattr(facts, key).strip()]
+        if missing:
+            yield 'token', 'What is ' + ' and '.join(missing) + '? You can also say use placeholders to draft with those details left blank.'
+            return
     yield 'warning', VERSION_NOTICE
     yield 'stage', 'macea_sources'
     queries = [TOPICS[context.topic]]
