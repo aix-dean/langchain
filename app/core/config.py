@@ -7,6 +7,9 @@ ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")  # Read .env (if it exists) so os.getenv can see our settings
 
 MAX_DOCUMENT_MB = int(os.getenv("MAX_DOCUMENT_MB", "20"))
+MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "2"))
+if MAX_CONCURRENT_REQUESTS < 1:
+    raise ValueError("MAX_CONCURRENT_REQUESTS must be at least 1")
 
 PROMPTS = ROOT / "prompts"  # Folder with the AI instructions and rule summaries
 

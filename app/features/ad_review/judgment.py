@@ -12,11 +12,15 @@ def image_search_queries(description):
         sections[match[1]] = match[2].strip()
     product = sections.get('2', description[:600])
     claims = sections.get('3', '')
-    # Always search the product requirements and the ad's claims/people rules.
+    # Search claim topics separately so product details do not bury the claim rules.
     queries = [product[:500] + ' mandatory advertising disclaimers',
                (product[:200] + ' ' + claims[:500] + ' ' + sections.get('5', '')[:300]).strip()]
-    if sections.get('6', '').strip().upper() not in {'', 'NONE', 'NONE FOUND'}:
-        queries.append((product[:200] + ' ' + sections['6'][:400]).strip())
+    if re.search(r'\b(bigger|juicier|bolder|better|more|less|improved|compared)\b', claims, re.I):
+        queries.append('comparative claims comparison basis substantiation')
+    if re.search(r'\b(best|biggest|most|superior|preferred|trusted|recommended)\b', claims, re.I):
+        queries.append('superiority claims independent quantitative research')
+    if re.search(r'\b(SRP|price|only|discount|free|promo)\b|[₱$]|\d', claims, re.I):
+        queries.append('price advertising SRP discounts promotions')
     return list(dict.fromkeys(queries))
 
 def judge_stream(description, note=""):

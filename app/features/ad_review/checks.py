@@ -285,6 +285,31 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
     if required_statement and normalized(required_statement) not in normalized(sections.get('1', '')):
         review_issues.append('The mandatory statement for the selected category was not verified in the transcribed ad text.')
 
+    # Preserve claim coverage even when the judge initially rejects the ad.
+    claim_checks = []
+    claim_text = sections.get('3', '')
+    observed_claims = []
+    if normalized(claim_text) not in {'', 'none', 'none found', 'no claims', 'no claims found'}:
+        observed_claims = re.findall(r'["\u201c]([^"\u201d]+)["\u201d]', claim_text)
+        observed_claims = observed_claims or [line.strip() for line in claim_text.splitlines() if line.strip()]
+    candidates = data.get('claim_checks', [])
+    if not isinstance(candidates, list):
+        candidates = []
+    for claim in observed_claims:
+        matching = [item for item in candidates if isinstance(item, dict)
+                    and normalized(item.get('claim', '')) == normalized(claim)]
+        valid = next((item for item in matching
+                      if all(isinstance(item.get(field), str) and item[field].strip()
+                             for field in ('claim', 'rule', 'status', 'finding', 'evidence'))
+                      and rule_id(item) in RULE_INFO
+                      and item['status'] in {'PASS', 'VIOLATION', 'REVIEW'}
+                      and normalized(claim) in normalized(item['evidence'])
+                      and item['evidence'].strip() in description), None)
+        if valid:
+            claim_checks.append({field: valid[field] for field in ('claim', 'rule', 'status', 'finding', 'evidence')})
+        else:
+            review_issues.append(f'Claim "{claim}": no complete evidence-backed claim assessment was provided; review is required.')
+
     approval_summary, checks_passed = '', []
     if verdict == 'COMPLIANT' and not reasons:
         candidate_checks = data.get('checks_passed')
@@ -348,6 +373,7 @@ def finalize(raw, description):  # Step 3: turns the judge's raw answer into the
         "reasons": reasons,  # The violations that hold up
         "approval_summary": approval_summary,  # Why it passed (compliant only)
         "checks_passed": checks_passed,  # What was checked (compliant only)
+        "claim_checks": claim_checks,
         "detected_category": sorted(detected),  # Product categories found in the description
         "removed_reasons": removed,  # Violations removed as made up, with why
         "decency_added_by_code": decency_added,  # Decency problems this code added
