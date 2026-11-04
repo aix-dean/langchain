@@ -1,6 +1,6 @@
 import ollama
 from app.core.config import CHAT_CONTEXT_CHARS, CHAT_CONTEXT_LIMIT, COLLECTION, EMBEDDING_MODEL, JUDGE_MODEL, OLLAMA_URL, VISION_MODEL
-from app.core.runtime import generation_lock as check_lock
+from app.core.runtime import generation_lock as check_lock, generation_busy
 from app.infrastructure.ollama.models import model_capabilities
 from app.infrastructure.qdrant.store import passage_count
 
@@ -10,6 +10,7 @@ def status():  # Reports whether Ollama, the models and the guidelines are ready
         "vision_model": VISION_MODEL, "judge_model": JUDGE_MODEL, "embedding_model": EMBEDDING_MODEL,  # Model names
         "collection": COLLECTION, "ollama": False, "missing_models": [], "qdrant": False, "passages": 0,  # Services
         "judge_tools": False, "device": None, "busy": jobs["active_jobs"] > 0, **jobs,  # Features and activity
+        "judge_tools": False, "device": None, "busy": generation_busy(),  # Features and activity
         "context_limit_chars": CHAT_CONTEXT_CHARS, "context_limit_tokens": CHAT_CONTEXT_LIMIT,  # Memory limit per chat (for the usage bar)
     }  # End of defaults
     try:  # Ollama might not be running

@@ -582,7 +582,7 @@ function chatUI() {
   const render = () => { if (frame) return; frame = requestAnimationFrame(() => { frame = 0; content.innerHTML = md(answer); scrollDown(); }); };
   return {
     event(ev) {
-      if (ev.type === "queued") setActivity("Waiting for the current check to finish…");
+      if (ev.type === "queued") setActivity("All processing slots are busy. Waiting for an available slot…");
       else if (ev.type === "thinking") { more.think(ev.text); if (!answer) setActivity("Thinking…"); }
       else if (ev.type === "search") { setActivity("Checking guidelines…"); }
       else if (ev.type === "token") { answer += ev.text; setActivity(""); render(); }
@@ -622,7 +622,7 @@ function checkUI(file, note) {
   const end = () => { clearInterval(timer); activity.remove(); };
   return {
     event(ev) {
-      if (ev.type === "queued") say("Waiting for the previous message to finish…");
+      if (ev.type === "queued") say("All processing slots are busy. Waiting for an available slot…");
       else if (ev.type === "stage" && TEXT[ev.value]) say(TEXT[ev.value]);
       else if (ev.type === "describe") { desc.hidden = false; const p = desc.querySelector("pre"); p.textContent += ev.text; p.scrollTop = p.scrollHeight; }
       else if (ev.type === "thinking") more.think(ev.text);

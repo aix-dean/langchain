@@ -206,14 +206,81 @@ AGED IN AMERICAN OAK
         with patch('app.features.ad_review.audit.get_judge',return_value=model):
             for body, success in [('{"supported":true,"issues":[]}',True),('{"supported":false,"issues":["Claim is unverified"]}',False),('{"supported":true,"issues":["Missing evidence"]}',False),('invalid',False)]:
                 model.invoke.return_value=SimpleNamespace(text=body,response_metadata={})
-                self.assertEqual(not verification.audit_judgment(approval(),DESC,['rules']),success)
+                self.assertEqual(not verification.audit_judgment(approval(),DESC,['rules'])['issues'],success)
             model.invoke.side_effect=RuntimeError('offline')
-            self.assertTrue(verification.audit_judgment(approval(),DESC,['rules']))
+            self.assertTrue(verification.audit_judgment(approval(),DESC,['rules'])['issues'])
+
+    def test_audit_removes_missing_srp_reason_and_recalculates(self):
+        description = DESC.replace('ACME bottled water. Pure refreshment.', 'SRP (bottom right, small)\nSRP ?199')
+        bad = finding(rule='P-01', problem='The price lacks SRP.', evidence='?199')
+        other = finding(problem='A separately supported violation.')
+        for remaining in ([], [other]):
+            proposed = {'result': 'NON-COMPLIANT', 'reasons': [bad, *remaining],
+                        'checks_passed': [], 'explanation': 'Not approved: The price lacks SRP.'}
+            audit = {'issues': ['SRP is explicitly present.'],
+                     'unsupported_reasons': [{'index': 0, 'issue': 'SRP is explicitly present.'}]}
+            with patch.object(pipeline, 'describe_image', return_value=iter([description])), \
+                 patch.object(pipeline, 'judge_stream', return_value=iter([('answer', 'raw')])), \
+                 patch.object(pipeline, 'finalize', return_value=copy.deepcopy(proposed)), \
+                 patch.object(pipeline, 'audit_judgment', return_value=audit):
+                result = list(pipeline.check_image(b'image'))[-1][1]
+            self.assertEqual(result['reasons'], remaining)
+            self.assertEqual(result['result'], 'NON-COMPLIANT' if remaining else 'COMPLIANT')
+            self.assertNotIn('The price lacks SRP.', result['explanation'])
+            self.assertTrue(result['notes'])
+            if not remaining:
+                self.assertIn('no proposed rule violation could be verified', result['approval_summary'])
+
+    def test_claim_checks_survive_initial_rejection_and_missing_claim_is_not_silent(self):
+        desc = DESC.replace('3. CLAIMS: NONE', '3. CLAIMS: "BIGGER"\n"JUICIER"')
+        data = rejection()
+        data['claim_checks'] = [{'claim': 'BIGGER', 'rule': 'C-05', 'status': 'REVIEW',
+                                 'finding': 'Confirm the comparison basis and supporting data.',
+                                 'evidence': 'BIGGER'}]
+        result = self.check_result(data, desc)
+        self.assertEqual(result['claim_checks'], data['claim_checks'])
+        self.assertTrue(any('JUICIER' in note and 'assessment' in note for note in result['notes']))
+
+    def test_claim_evidence_must_match_observations(self):
+        desc = DESC.replace('3. CLAIMS: NONE', '3. CLAIMS: "BIGGER"')
+        data = approval()
+        data['claim_checks'] = [{'claim': 'BIGGER', 'rule': 'C-05', 'status': 'PASS',
+                                 'finding': 'Compared against last year.', 'evidence': 'BIGGER than last year'}]
+        result = self.check_result(data, desc)
+        self.assertEqual(result['claim_checks'], [])
+        self.assertTrue(any('BIGGER' in note and 'assessment' in note for note in result['notes']))
+
+    def test_claim_review_is_in_response_notes_after_false_rejection_removed(self):
+        proposed = {'result': 'NON-COMPLIANT', 'reasons': [finding(rule='P-01')],
+                    'claim_checks': [{'claim': 'BIGGER', 'rule': 'C-05', 'status': 'REVIEW',
+                                      'finding': 'Confirm comparison basis.', 'evidence': 'BIGGER'}]}
+        audit = {'issues': ['SRP is present'], 'unsupported_reasons': [{'index': 0, 'issue': 'SRP is present'}]}
+        with patch.object(pipeline, 'describe_image', return_value=iter([DESC])), \
+             patch.object(pipeline, 'judge_stream', return_value=iter([('answer', 'raw')])), \
+             patch.object(pipeline, 'finalize', return_value=proposed), \
+             patch.object(pipeline, 'audit_judgment', return_value=audit):
+            result = list(pipeline.check_image(b'image'))[-1][1]
+        self.assertEqual(result['result'], 'COMPLIANT')
+        self.assertTrue(any('BIGGER' in note and 'C-05' in note for note in result['notes']))
+        self.assertIn('Confirm comparison basis.', result['explanation'])
+
+    def test_audit_validates_reason_references(self):
+        model = Mock()
+        proposed = {'reasons': [finding(rule='P-01')]}
+        with patch.object(verification, 'get_judge', return_value=model):
+            for index, valid in [(0, True), (1, False), (-1, False), (True, False)]:
+                model.invoke.return_value = SimpleNamespace(text=json.dumps({
+                    'supported': False, 'issues': ['SRP is present'],
+                    'unsupported_reasons': [{'index': index, 'issue': 'SRP is present'}]
+                }), response_metadata={})
+                audit = verification.audit_judgment(proposed, DESC, [])
+                self.assertEqual(bool(audit['unsupported_reasons']), valid)
+                self.assertTrue(audit['issues'])
 
     def test_audit_disagreement_never_becomes_opposite_verdict(self):
         for verdict in ['COMPLIANT','NON-COMPLIANT']:
             with patch('app.features.ad_review.service.describe_image',return_value=iter([DESC])), patch('app.features.ad_review.service.judge_stream',return_value=iter([('answer','raw')])):
-                with patch('app.features.ad_review.service.finalize',return_value={'result':verdict}), patch('app.features.ad_review.service.audit_judgment',return_value=['Evidence conflicts']):
+                with patch('app.features.ad_review.service.finalize',return_value={'result':verdict}), patch('app.features.ad_review.service.audit_judgment',return_value={'issues':['Evidence conflicts'], 'unsupported_reasons':[]}):
                     result=list(pipeline.check_image(b'image'))[-1][1]
             self.assertEqual(result['result'],verdict)
             self.assertIn('Evidence conflicts', result['notes'])
