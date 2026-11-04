@@ -1,7 +1,7 @@
 """Startup work owned by the application composition layer."""
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import CHAT_REASONING
-from app.core.runtime import generation_lock
+from app.core.runtime import generation_slots
 from app.features.chat.service import system_prompt
 from app.infrastructure.ollama.embeddings import embedding_url
 from app.infrastructure.ollama.models import get_judge
@@ -20,5 +20,5 @@ def warm_up():
 
 def get_ready():
     embedding_url()
-    with generation_lock:
+    with generation_slots:
         warm_up()

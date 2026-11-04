@@ -37,6 +37,15 @@ class ImagePerformanceTests(unittest.TestCase):
         self.assertNotIn('You MUST call "asc_guidelines"', args.args[0][1].content)
         self.assertEqual(events[-1][0], 'answer')
 
+    def test_claim_topics_are_retrieved_separately(self):
+        description = DESCRIPTION.replace('3. CLAIMS: NONE', '3. CLAIMS: "BIGGER" "JUICIER" "BOLDER" "ONLY SRP 199"')
+        queries = judge.image_search_queries(description)
+        self.assertIn('comparative claims comparison basis substantiation', queries)
+        self.assertIn('price advertising SRP discounts promotions', queries)
+        self.assertNotIn('superiority claims independent quantitative research', queries)
+        queries = judge.image_search_queries(description.replace('BIGGER', 'BIGGEST'))
+        self.assertIn('superiority claims independent quantitative research', queries)
+
     def test_truncated_judgment_never_becomes_verdict(self):
         model = Mock()
         model.stream.return_value = iter([AIMessageChunk(content='{"verdict":"COMPLIANT"}', response_metadata={'done_reason':'length'})])
@@ -64,7 +73,7 @@ class ImagePerformanceTests(unittest.TestCase):
 
     def test_pipeline_keeps_verification_and_stage_timings(self):
         with patch('app.features.ad_review.service.describe_image', return_value=iter([DESCRIPTION])), patch('app.features.ad_review.service.judge_stream', return_value=iter([('answer','raw')])):
-            with patch('app.features.ad_review.service.finalize', return_value={'result':'NON-COMPLIANT'}) as finalize, patch('app.features.ad_review.service.audit_judgment', return_value=[]):
+            with patch('app.features.ad_review.service.finalize', return_value={'result':'NON-COMPLIANT'}) as finalize, patch('app.features.ad_review.service.audit_judgment', return_value={'issues': [], 'unsupported_reasons': []}):
                 result = list(pipeline.check_image(b'image'))[-1][1]
         finalize.assert_called_once_with('raw', DESCRIPTION)
         self.assertEqual(set(result['timings']), {'describe','judge','verify'})

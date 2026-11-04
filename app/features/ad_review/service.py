@@ -2,7 +2,7 @@ import time  # Standard library module for measuring how long each step takes
 import hashlib
 from datetime import datetime  # Standard library module for the date and time of the check
 
-from app.features.ad_review.checks import approval_reason, error_result, finalize  # Step 3: verify the judge's answer
+from app.features.ad_review.checks import approval_reason, error_result, finalize, rule_id  # Step 3: verify the judge's answer
 from app.core.config import IMAGE_SEED, IMAGE_JUDGE_REASONING, JUDGE_MODEL, VISION_MODEL, read_prompt
 from app.features.ad_review.judgment import judge_stream  # Step 2: judge the description against the ASC rules
 from app.infrastructure.ollama.vision import describe_image  # Step 1: describe the image
@@ -40,7 +40,18 @@ def check_image(image_bytes, note=""):  # Runs the whole check on one image (not
     yield "stage", "verify"  # Step 3 starts
     result = finalize(raw, description)  # Validate evidence and record uncertainty as notes.
     if result['result'] in {'COMPLIANT', 'NON-COMPLIANT'}:
-        audit_issues = audit_judgment(result, description, retrieved)
+        audit = audit_judgment(result, description, retrieved)
+        audit_issues = audit['issues']
+        unsupported = {item['index']: item['issue'] for item in audit['unsupported_reasons']}
+        if unsupported:
+            reasons = result.get('reasons', [])
+            removed = [f"{reasons[index].get('rule')}: {issue}" for index, issue in unsupported.items()]
+            result['removed_reasons'] = result.get('removed_reasons', []) + removed
+            result['reasons'] = [reason for index, reason in enumerate(reasons) if index not in unsupported]
+            result['result'] = 'NON-COMPLIANT' if result['reasons'] else 'COMPLIANT'
+            audit_issues = audit_issues + ['Unsupported rejection findings were excluded: ' + '; '.join(removed)]
+            if result['result'] == 'NON-COMPLIANT':
+                result['explanation'] = 'Not approved: ' + ' '.join(str(reason['problem']) for reason in result['reasons'])
         if audit_issues:
             issues = result.get('review_issues', []) + audit_issues
             result.update(review_issues=issues, notes=list(dict.fromkeys(issues)), message=' '.join(issues))
@@ -49,6 +60,21 @@ def check_image(image_bytes, note=""):  # Runs the whole check on one image (not
             result['explanation'] = (result.get('approval_summary') if result['result'] == 'COMPLIANT'
                                      else result.get('explanation', 'Not approved: verified violations were found.'))
             result['explanation'] += ' Notes: ' + ' '.join(audit_issues)
+    # Include claim-by-claim explanations in the existing UI, chat and PDF notes.
+    claim_notes = []
+    for item in result.get('claim_checks', []):
+        status = item['status']
+        if status == 'VIOLATION' and not any(rule_id(reason) == rule_id(item)
+                                             and item['claim'].casefold() in str(reason.get('evidence', '')).casefold()
+                                             for reason in result.get('reasons', [])):
+            status = item['status'] = 'REVIEW'
+            item['finding'] = 'The proposed violation was not retained after verification. Review this claim against the cited rule.'
+        label = {'PASS': 'Model assessment', 'VIOLATION': 'Violation', 'REVIEW': 'Review required'}[status]
+        claim_notes.append(f'Claim "{item["claim"]}" — {item["rule"]} — {label}: {item["finding"]}')
+    if claim_notes:
+        issues = list(dict.fromkeys(result.get('review_issues', []) + claim_notes))
+        result.update(review_issues=issues, notes=issues, message=' '.join(issues))
+        result['explanation'] = result.get('explanation', '') + ' Claim checks: ' + ' '.join(claim_notes)
     result["description"] = description  # Include the description, for the reviewer
     timings['verify'] = round(time.perf_counter() - verify_start, 2)
     result['timings'] = timings
