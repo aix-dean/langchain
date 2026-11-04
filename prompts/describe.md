@@ -16,7 +16,13 @@ You MUST write your answer under these 7 numbered headings, in this order, even 
 
 5. PEOPLE: For each person: their apparent age (child, teen, adult), clothing (normal, revealing, swimwear), what they are doing (drinking, smoking, eating, holding the product), and whether they look like a doctor or professional.
 
-6. OTHER VISUALS: Flags, national symbols, money, religious symbols, weapons, violence, alcohol being poured or drunk, cars or driving, before/after images, competitor brands or logos, eco or certification symbols, and the FDA logo.
+6. OTHER VISUALS: Give a detailed, organized description of the visible scene using the following unnumbered subheadings when applicable:
+- Main product: Its position, shape, visible layers or components, colors, textures, packaging, and presentation. For food, describe visible ingredients, toppings, sauces, and preparation cues. If an ingredient cannot be identified confidently, describe its appearance and mark its identity as uncertain; do not invent ingredients, flavors, or quantities.
+- Sides and beverages: Each accompanying item, its container, appearance, and location. Identify brands only when supported by readable text or a clearly recognizable logo.
+- Layout and branding: The arrangement of the product, supporting items, logos, and text blocks; visible lettering styles and price graphics. Keep any quoted wording consistent with section 1.
+- Background and visual style: Background colors, flames or other effects, surface, scattered objects, lighting, shadows, and overall composition. Describe visible effects without treating them as proof of product performance or benefits.
+- Other review-relevant visuals: Flags, national symbols, money, religious symbols, weapons, violence, alcohol being poured or drunk, cars or driving, before/after images, competitor brands or logos, eco or certification symbols, and the FDA logo, when actually present.
+Keep these details inside section 6 and preserve all seven numbered headings. Omit inapplicable subheadings; write NONE only if there are no visuals to describe.
 
 7. UNREADABLE: Any text that is too small or blurry to read, and where it is.
 

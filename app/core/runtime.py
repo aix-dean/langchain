@@ -57,3 +57,14 @@ class GenerationLimiter:
 
 # Retained name for existing warm-up and stream callers.
 generation_lock = GenerationLimiter(MAX_CONCURRENT_AI, MAX_QUEUED_AI, AI_QUEUE_TIMEOUT_SECONDS)
+from app.core.config import MAX_CONCURRENT_REQUESTS
+
+generation_slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
+
+
+def generation_busy():
+    """Whether all processing slots are currently occupied."""
+    if generation_slots.acquire(blocking=False):
+        generation_slots.release()
+        return False
+    return True

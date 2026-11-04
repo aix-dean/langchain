@@ -579,9 +579,9 @@ Set `PORT=8001` in `.env` and open `http://127.0.0.1:8001`.
 - **Documents can't be checked.** Claims that need proof (sales data for "No. 1", research for
   "best", permits, licenses) are noted as needing documents, not flagged as violations.
 - **Images only:** JPG and PNG. No video, audio or multi-page PDFs.
-- **One answer at a time.** Checks and chat answers share the graphics card, so a second one waits
-  (the page says "Waiting for the current check to finish"). Stopping an answer with **■** stops the
-  page, but the AI finishes its current step in the background first.
+- **Two requests at a time.** Chats and image reviews share two processing slots.
+  Further requests wait for an available slot. Stopping a request releases its slot
+  after the current blocking model step returns.
 - **Chat answers can still be wrong.** The assistant is told to stick to the ASC rules, and made-up
   measurements are flagged, but always check important answers against the ASC Guidebook.
 - **Chats are not persisted.** Refreshing or closing the page clears the conversation and images.
@@ -607,7 +607,7 @@ The server only accepts connections from this computer (`127.0.0.1`).
 
 | `type` | Fields | Meaning |
 |---|---|---|
-| `queued` | | Another check is running; this one waits |
+| `queued` | | All processing slots are occupied; this request waits |
 | `stage` | `value`: `describe` / `judge` / `verify` | A new step started |
 | `describe` | `text` | A piece of the image description |
 | `token` | `text` | A piece of a chat answer |
@@ -750,3 +750,14 @@ Parallel generation requires a supported model/runtime, not just a higher limit.
 ## MACEA text services
 
 Phase 1 adds `POST /api/macea` for service selection, request-letter drafting, pasted-letter review, submission checklists, reviewer-comment responses and requirements questions. See [the API PRD](docs/macea-services-prd.md). It accepts bounded JSON case facts, uses MACEA retrieval, streams NDJSON and never adds applicant text to Qdrant. It does not implement MACEA image review or official submission. The matching frontend and Firestore rule update are required for the full workflow.
+## Concurrent requests
+
+Text chats and image reviews share two processing slots per backend worker. Set
+`MAX_CONCURRENT_REQUESTS` in `.env` to change this (positive integer; default `2`).
+Further requests receive the existing `queued` event until a slot is available.
+
+Ollama must also support parallel inference: on Windows, quit Ollama, set the user
+environment variable `OLLAMA_NUM_PARALLEL` to `2`, then start Ollama again. Setting
+this only in the application `.env` does not configure a running Ollama server.
+Parallel inference uses additional memory and may reduce individual response speed.
+Keep the single-worker launch to enforce one shared two-request limit.

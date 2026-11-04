@@ -15,6 +15,7 @@ import os  # Standard library module for environment variables
 import shutil  # Standard library module for finding programs
 import subprocess  # Standard library module for starting other programs
 import time  # Standard library module for waiting
+import threading
 from urllib.parse import urlparse  # Standard library module for reading web addresses
 
 import ollama  # Ollama's own client
@@ -25,6 +26,7 @@ CPU_PORT = 11435  # Port of the processor-only copy (the normal Ollama uses 1143
 CPU_URL = f"http://127.0.0.1:{CPU_PORT}"  # Its address
 _url = None  # The address embeddings use, decided once
 _process = None  # The copy we started (if any)
+_initialization_lock = threading.Lock()
 
 
 def _reachable(url):  # Does an Ollama answer at this address?
@@ -59,6 +61,11 @@ def _stop_cpu_copy():  # Stops the copy we started
 
 
 def embedding_url():  # The Ollama address used for search embeddings
+    with _initialization_lock:
+        return _initialize_embedding_url()
+
+
+def _initialize_embedding_url():
     global _url  # Decide once, then remember
     if _url:  # Already decided
         return _url  # Reuse it
